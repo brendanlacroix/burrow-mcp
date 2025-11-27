@@ -90,7 +90,9 @@ async def handle_get_system_status(
 ) -> dict[str, Any]:
     """Handle the get_system_status tool.
 
-    Returns overall system health and status.
+    Returns overall system health and status with human-readable context.
+    Following Anthropic best practices: return meaningful context that helps
+    agents reason about next actions rather than raw data.
     """
     devices = device_manager.get_devices()
     rooms = device_manager.get_rooms()
@@ -101,7 +103,8 @@ async def handle_get_system_status(
     unknown_count = sum(1 for d in devices if d.status == DeviceStatus.UNKNOWN)
 
     # Count occupied rooms
-    occupied_rooms = sum(1 for r in rooms if r.occupied)
+    occupied_rooms = [r for r in rooms if r.occupied]
+    lights_on = sum(device_manager.count_lights_on(r.id) for r in rooms)
 
     # Group devices by type
     by_type: dict[str, int] = {}
@@ -111,21 +114,41 @@ async def handle_get_system_status(
 
     # Get offline devices for troubleshooting
     offline_devices = [
-        {"id": d.id, "name": d.name, "type": d.device_type.value}
+        {"id": d.id, "name": d.name, "type": d.device_type.value, "room": d.room_id}
         for d in devices
         if d.status == DeviceStatus.OFFLINE
     ]
 
+    # Build human-readable summary
+    if offline_count == 0:
+        status_text = "All systems operational"
+        status_code = "healthy"
+    elif offline_count == 1:
+        status_text = f"1 device offline: {offline_devices[0]['name']}"
+        status_code = "degraded"
+    else:
+        status_text = f"{offline_count} devices offline"
+        status_code = "degraded"
+
+    # Build presence summary
+    if occupied_rooms:
+        presence_text = f"Occupied: {', '.join(r.name for r in occupied_rooms)}"
+    else:
+        presence_text = "No rooms currently occupied"
+
     status = {
-        "status": "healthy" if offline_count == 0 else "degraded",
+        "status": status_code,
+        "status_text": status_text,
         "summary": {
             "total_devices": len(devices),
             "online_devices": online_count,
             "offline_devices": offline_count,
             "unknown_devices": unknown_count,
             "total_rooms": len(rooms),
-            "occupied_rooms": occupied_rooms,
+            "occupied_rooms": len(occupied_rooms),
+            "lights_on": lights_on,
         },
+        "presence": presence_text,
         "devices_by_type": by_type,
     }
 
@@ -134,8 +157,17 @@ async def handle_get_system_status(
             "offline_devices": offline_devices,
             "recommendation": (
                 "Check device connectivity and power. "
-                "Try refreshing state with get_device_state for each offline device."
+                "Use 'get_device_state' with device_id to attempt refresh."
             ),
         }
+
+    # Add suggested next actions based on context
+    suggestions = []
+    if offline_count > 0:
+        suggestions.append(f"Check offline devices: {', '.join(d['id'] for d in offline_devices)}")
+    if lights_on > 0 and not occupied_rooms:
+        suggestions.append("Lights are on but no rooms occupied - consider turning them off")
+    if suggestions:
+        status["suggested_actions"] = suggestions
 
     return status
