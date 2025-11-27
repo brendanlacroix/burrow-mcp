@@ -2,11 +2,13 @@
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Any
 
 from config import BurrowConfig, DeviceConfig, SecretsConfig
 from models import Device, DeviceStatus, DeviceType, Light, Lock, Plug, Vacuum
 from models.room import Room
+from persistence import StateStore, get_store
 
 logger = logging.getLogger(__name__)
 
@@ -14,12 +16,19 @@ logger = logging.getLogger(__name__)
 class DeviceManager:
     """Manages all devices and rooms."""
 
-    def __init__(self, config: BurrowConfig, secrets: SecretsConfig):
+    def __init__(
+        self,
+        config: BurrowConfig,
+        secrets: SecretsConfig,
+        db_path: Path | str | None = None,
+    ):
         self.config = config
         self.secrets = secrets
         self._devices: dict[str, Device] = {}
         self._rooms: dict[str, Room] = {}
         self._device_factories: dict[str, Any] = {}
+        self._db_path = db_path
+        self._store: StateStore | None = None
 
     def register_device_factory(self, device_type: str, factory: Any) -> None:
         """Register a factory function for creating devices of a given type.
@@ -30,6 +39,12 @@ class DeviceManager:
 
     async def initialize(self) -> None:
         """Initialize all rooms and devices from config."""
+        # Initialize state store
+        self._store = await get_store(self._db_path)
+
+        # Load persisted room states
+        room_states = await self._store.load_all_room_states()
+
         # Create rooms
         for room_config in self.config.rooms:
             room = Room(
@@ -37,12 +52,33 @@ class DeviceManager:
                 name=room_config.name,
                 floor=room_config.floor,
             )
+            # Restore persisted occupancy
+            if room.id in room_states:
+                room.occupied = room_states[room.id]
+
             self._rooms[room.id] = room
             logger.info(f"Created room: {room.name}")
 
         # Create devices
         for device_config in self.config.devices:
             await self._create_device(device_config)
+
+    async def shutdown(self) -> None:
+        """Gracefully shutdown, persisting state."""
+        # Save all device states
+        if self._store:
+            for device in self._devices.values():
+                await self._store.save_device_state(
+                    device.id,
+                    device.device_type.value,
+                    device.to_state_dict(),
+                )
+
+            # Save room states
+            for room in self._rooms.values():
+                await self._store.save_room_state(room.id, room.occupied)
+
+            logger.info("Persisted device and room states")
 
     async def _create_device(self, device_config: DeviceConfig) -> Device | None:
         """Create a device from config."""
@@ -73,6 +109,9 @@ class DeviceManager:
             if isinstance(result, Exception):
                 logger.error(f"Failed to refresh {device.id}: {result}")
                 device.status = DeviceStatus.OFFLINE
+            else:
+                # Persist updated state
+                await self._persist_device_state(device)
 
     async def refresh_device(self, device_id: str) -> bool:
         """Refresh state of a single device."""
@@ -81,11 +120,45 @@ class DeviceManager:
             return False
         try:
             await device.refresh()
+            await self._persist_device_state(device)
             return True
         except Exception as e:
             logger.error(f"Failed to refresh {device_id}: {e}")
             device.status = DeviceStatus.OFFLINE
             return False
+
+    async def _persist_device_state(self, device: Device) -> None:
+        """Persist a device's current state."""
+        if self._store:
+            await self._store.save_device_state(
+                device.id,
+                device.device_type.value,
+                device.to_state_dict(),
+            )
+
+    async def record_device_event(
+        self,
+        device_id: str,
+        event_type: str,
+        state: dict[str, Any] | None = None,
+    ) -> None:
+        """Record a device event in history."""
+        if self._store:
+            await self._store.record_device_event(device_id, event_type, state)
+
+    async def update_room_presence(
+        self,
+        room_id: str,
+        occupied: bool,
+        confidence: float | None = None,
+    ) -> None:
+        """Update room presence and persist."""
+        room = self._rooms.get(room_id)
+        if room:
+            room.occupied = occupied
+            if self._store:
+                await self._store.save_room_state(room_id, occupied)
+                await self._store.record_presence_event(room_id, occupied, confidence)
 
     # Device getters
     def get_device(self, device_id: str) -> Device | None:

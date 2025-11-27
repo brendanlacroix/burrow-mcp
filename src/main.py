@@ -3,7 +3,6 @@
 import asyncio
 import logging
 import sys
-from datetime import datetime
 
 from config import load_config, load_secrets
 from devices import register_all_factories
@@ -59,11 +58,11 @@ async def main() -> None:
                         )
 
             def on_presence_change(room_id: str, occupied: bool) -> None:
-                room = device_manager.get_room(room_id)
-                if room:
-                    room.occupied = occupied
-                    room.last_presence_change = datetime.now()
-                    logger.info(f"Room {room_id} presence: {occupied}")
+                # Use device manager's method which also persists state
+                asyncio.create_task(
+                    device_manager.update_room_presence(room_id, occupied)
+                )
+                logger.info(f"Room {room_id} presence: {occupied}")
 
             presence_manager.set_presence_callback(on_presence_change)
             await presence_manager.start()
@@ -82,6 +81,9 @@ async def main() -> None:
     finally:
         if presence_manager:
             await presence_manager.stop()
+        # Persist state before shutdown
+        await device_manager.shutdown()
+        logger.info("Shutdown complete")
 
 
 def run() -> None:
