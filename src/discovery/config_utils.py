@@ -73,6 +73,11 @@ roomba: {}
 govee: {}
   # api_key: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
+# Ring credentials (run 'burrow discover ring' for interactive setup)
+ring: {}
+  # refresh_token: "xxxxx"  # Cached after interactive auth
+  # device_id: "123456789"
+
 # MQTT broker for presence sensors
 mqtt: {}
   # host: "192.168.1.xxx"

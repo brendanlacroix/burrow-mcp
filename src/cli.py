@@ -95,6 +95,19 @@ def main() -> None:
         help="Discovery timeout in seconds (default: 5)",
     )
 
+    # discover ring
+    ring_parser = discover_subparsers.add_parser("ring", help="Ring device setup")
+    ring_parser.add_argument(
+        "--auth",
+        action="store_true",
+        help="Run interactive authentication only",
+    )
+    ring_parser.add_argument(
+        "--help-only",
+        action="store_true",
+        help="Show Ring setup instructions",
+    )
+
     # config command
     config_parser = subparsers.add_parser("config", help="Configuration utilities")
     config_subparsers = config_parser.add_subparsers(dest="config_action", help="Config action")
@@ -163,6 +176,20 @@ async def run_discovery(args: argparse.Namespace) -> None:
     elif args.discover_type == "network":
         from discovery.network import scan_network
         await scan_network(timeout=args.timeout)
+
+    elif args.discover_type == "ring":
+        from discovery.ring import discover_ring, print_ring_help
+
+        if args.help_only:
+            print_ring_help()
+        else:
+            from config import load_secrets, find_config_dir
+
+            try:
+                secrets = load_secrets(find_config_dir())
+            except Exception:
+                secrets = None
+            await discover_ring(secrets=secrets)
 
 
 def run_config_command(args: argparse.Namespace) -> None:

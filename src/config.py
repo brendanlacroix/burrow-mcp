@@ -69,6 +69,7 @@ class SecretsConfig(BaseModel):
     august: dict[str, str] = Field(default_factory=dict)
     roomba: dict[str, str] = Field(default_factory=dict)
     govee: dict[str, str] = Field(default_factory=dict)
+    ring: dict[str, str] = Field(default_factory=dict)
     mqtt: dict[str, Any] = Field(default_factory=dict)
 
 
