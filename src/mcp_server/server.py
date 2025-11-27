@@ -10,7 +10,7 @@ from mcp.types import TextContent
 
 from config import BurrowConfig, SecretsConfig
 from devices.manager import DeviceManager
-from mcp.handlers import (
+from mcp_server.handlers import (
     LightHandlers,
     LockHandlers,
     PlugHandlers,
@@ -20,7 +20,7 @@ from mcp.handlers import (
     handle_discover_tools,
     handle_get_system_status,
 )
-from mcp.tools import get_all_tools
+from mcp_server.tools import get_all_tools
 from presence import PresenceManager
 
 logger = logging.getLogger(__name__)

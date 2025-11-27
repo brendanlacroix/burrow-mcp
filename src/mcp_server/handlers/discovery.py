@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from devices.manager import DeviceManager
-from mcp.tools import TOOL_CATEGORIES, get_all_tools
+from mcp_server.tools import TOOL_CATEGORIES, get_all_tools
 from models.base import DeviceStatus
 
 

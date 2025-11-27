@@ -7,7 +7,7 @@ import sys
 from config import load_config, load_secrets
 from devices import register_all_factories
 from devices.manager import DeviceManager
-from mcp.server import create_server
+from mcp_server.server import create_server
 from presence import PresenceManager, create_presence_manager
 
 logging.basicConfig(
