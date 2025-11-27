@@ -1,5 +1,5 @@
 """State management for Burrow MCP."""
 
-from burrow.state.store import StateStore
+from state.store import StateStore
 
 __all__ = ["StateStore"]

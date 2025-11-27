@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable
 
-from burrow.config import SecretsConfig
-from burrow.models.presence import PresenceState
+from config import SecretsConfig
+from models.presence import PresenceState
 
 logger = logging.getLogger(__name__)
 
@@ -91,11 +91,7 @@ class PresenceManager:
                     username=self.mqtt_username,
                     password=self.mqtt_password,
                 ) as client:
-                    # Subscribe to all sensor topics
                     for sensor in self._sensors.values():
-                        # Subscribe to presence topic - common patterns:
-                        # burrow/presence/living_room/binary_sensor/presence/state
-                        # or just burrow/presence/living_room
                         await client.subscribe(f"{sensor.mqtt_topic}/#")
                         await client.subscribe(sensor.mqtt_topic)
                         logger.info(f"Subscribed to {sensor.mqtt_topic}")
@@ -107,11 +103,10 @@ class PresenceManager:
                 raise
             except Exception as e:
                 logger.error(f"MQTT connection error: {e}")
-                await asyncio.sleep(5)  # Reconnect delay
+                await asyncio.sleep(5)
 
     async def _handle_message(self, topic: str, payload: bytes) -> None:
         """Handle incoming MQTT message."""
-        # Find which sensor this message is for
         sensor = None
         for s in self._sensors.values():
             if topic.startswith(s.mqtt_topic):
@@ -121,24 +116,19 @@ class PresenceManager:
         if sensor is None:
             return
 
-        # Parse payload - handle common formats
         try:
             payload_str = payload.decode("utf-8").strip().lower()
-            # Common formats: "on"/"off", "true"/"false", "1"/"0", "occupied"/"clear"
             occupied = payload_str in ("on", "true", "1", "occupied", "detected")
         except Exception as e:
             logger.warning(f"Failed to parse presence payload: {e}")
             return
 
-        # Update sensor state
         old_occupied = sensor.occupied
         sensor.occupied = occupied
         sensor.last_update = datetime.now()
 
-        # Update presence state
         self._state.set_room_presence(sensor.room_id, occupied, sensor.id)
 
-        # Fire callback if state changed
         if occupied != old_occupied and self._on_presence_change:
             self._on_presence_change(sensor.room_id, occupied)
 
@@ -157,14 +147,7 @@ class PresenceManager:
 
 
 def create_presence_manager(secrets: SecretsConfig) -> PresenceManager:
-    """Create a presence manager from secrets config.
-
-    Args:
-        secrets: Secrets configuration containing MQTT settings
-
-    Returns:
-        Configured PresenceManager instance
-    """
+    """Create a presence manager from secrets config."""
     mqtt_config = secrets.mqtt
     return PresenceManager(
         mqtt_host=mqtt_config.get("host", "localhost"),

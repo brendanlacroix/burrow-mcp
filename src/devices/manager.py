@@ -1,16 +1,14 @@
-"""Base device manager for Burrow MCP."""
+"""Device manager for Burrow MCP."""
 
 import asyncio
 import logging
-from typing import Any, TypeVar
+from typing import Any
 
-from burrow.config import BurrowConfig, DeviceConfig, SecretsConfig
-from burrow.models.device import Device, DeviceStatus, DeviceType, Light, Lock, Plug, Vacuum
-from burrow.models.room import Room
+from config import BurrowConfig, DeviceConfig, SecretsConfig
+from models import Device, DeviceStatus, DeviceType, Light, Lock, Plug, Vacuum
+from models.room import Room
 
 logger = logging.getLogger(__name__)
-
-T = TypeVar("T", bound=Device)
 
 
 class DeviceManager:

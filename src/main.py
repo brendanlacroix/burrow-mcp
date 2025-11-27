@@ -3,15 +3,14 @@
 import asyncio
 import logging
 import sys
-from pathlib import Path
+from datetime import datetime
 
-from burrow.config import load_config, load_secrets
-from burrow.devices import register_all_factories
-from burrow.devices.base import DeviceManager
-from burrow.mcp.server import create_server
-from burrow.presence.mmwave import PresenceManager, create_presence_manager
+from config import load_config, load_secrets
+from devices import register_all_factories
+from devices.manager import DeviceManager
+from mcp.server import create_server
+from presence import PresenceManager, create_presence_manager
 
-# Set up logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -43,14 +42,12 @@ async def main() -> None:
         logger.info(f"Initialized {len(device_manager.get_devices())} devices")
     except Exception as e:
         logger.error(f"Failed to initialize devices: {e}")
-        # Continue anyway - some devices may have initialized
 
     # Create presence manager
     presence_manager: PresenceManager | None = None
     if secrets.mqtt:
         try:
             presence_manager = create_presence_manager(secrets)
-            # Add sensors from config
             for device_config in config.devices:
                 if device_config.type == "mmwave":
                     mqtt_topic = device_config.config.get("mqtt_topic", "")
@@ -61,12 +58,10 @@ async def main() -> None:
                             mqtt_topic,
                         )
 
-            # Set up presence callback to update room state
             def on_presence_change(room_id: str, occupied: bool) -> None:
                 room = device_manager.get_room(room_id)
                 if room:
                     room.occupied = occupied
-                    from datetime import datetime
                     room.last_presence_change = datetime.now()
                     logger.info(f"Room {room_id} presence: {occupied}")
 

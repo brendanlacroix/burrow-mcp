@@ -5,8 +5,9 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from burrow.config import DeviceConfig, SecretsConfig
-from burrow.models.device import DeviceStatus, DeviceType, Light
+from config import DeviceConfig, SecretsConfig
+from models.base import DeviceStatus, DeviceType
+from models.light import Light
 
 logger = logging.getLogger(__name__)
 
@@ -20,20 +21,16 @@ def hex_to_hsbk(hex_color: str) -> tuple[int, int, int, int]:
     Returns:
         Tuple of (hue, saturation, brightness, kelvin) in LIFX scale
     """
-    # Remove # prefix if present
     hex_color = hex_color.lstrip("#")
 
-    # Parse RGB
     r = int(hex_color[0:2], 16) / 255.0
     g = int(hex_color[2:4], 16) / 255.0
     b = int(hex_color[4:6], 16) / 255.0
 
-    # Convert RGB to HSV
     max_c = max(r, g, b)
     min_c = min(r, g, b)
     diff = max_c - min_c
 
-    # Hue
     if diff == 0:
         h = 0
     elif max_c == r:
@@ -43,17 +40,13 @@ def hex_to_hsbk(hex_color: str) -> tuple[int, int, int, int]:
     else:
         h = (60 * ((r - g) / diff) + 240) % 360
 
-    # Saturation
     s = 0 if max_c == 0 else (diff / max_c)
-
-    # Value (brightness)
     v = max_c
 
-    # Convert to LIFX scale (16-bit values)
     hue = int((h / 360.0) * 65535)
     saturation = int(s * 65535)
     brightness = int(v * 65535)
-    kelvin = 3500  # Default kelvin for color mode
+    kelvin = 3500
 
     return hue, saturation, brightness, kelvin
 
@@ -69,12 +62,10 @@ def hsbk_to_hex(hue: int, saturation: int, brightness: int) -> str:
     Returns:
         Hex color string
     """
-    # Convert from LIFX scale to 0-1 range
     h = (hue / 65535.0) * 360
     s = saturation / 65535.0
     v = brightness / 65535.0
 
-    # Convert HSV to RGB
     c = v * s
     x = c * (1 - abs((h / 60) % 2 - 1))
     m = v - c
@@ -119,20 +110,16 @@ class LifxLight(Light):
             return
 
         try:
-            # Get power state
             power = await self._run_sync(self._lifx_device.get_power)
             self.is_on = power > 0
 
-            # Get color (HSBK)
             color = await self._run_sync(self._lifx_device.get_color)
             if color:
                 hue, saturation, brightness, kelvin = color
-                # Convert brightness from 0-65535 to 0-100
                 self.brightness = int((brightness / 65535.0) * 100)
                 self.color_temp = kelvin
 
-                # Only set color if saturation is significant
-                if saturation > 1000:  # Threshold for "has color"
+                if saturation > 1000:
                     self.color = hsbk_to_hex(hue, saturation, brightness)
                 else:
                     self.color = None
@@ -163,21 +150,17 @@ class LifxLight(Light):
             raise RuntimeError(f"LIFX device {self.id} not connected")
 
         try:
-            # Clamp brightness
             brightness = max(0, min(100, brightness))
 
-            # Get current color to preserve hue/sat/kelvin
             color = await self._run_sync(self._lifx_device.get_color)
             if color:
                 hue, saturation, _, kelvin = color
-                # Convert brightness to LIFX scale
                 lifx_brightness = int((brightness / 100.0) * 65535)
                 await self._run_sync(
                     self._lifx_device.set_color, [hue, saturation, lifx_brightness, kelvin]
                 )
 
             self.brightness = brightness
-            # Turn on if setting brightness > 0
             if brightness > 0 and not self.is_on:
                 await self.set_power(True)
             self.status = DeviceStatus.ONLINE
@@ -202,7 +185,6 @@ class LifxLight(Light):
             self.color = color
             self.status = DeviceStatus.ONLINE
 
-            # Turn on if not already
             if not self.is_on:
                 await self.set_power(True)
         except Exception as e:
@@ -216,24 +198,19 @@ class LifxLight(Light):
             raise RuntimeError(f"LIFX device {self.id} not connected")
 
         try:
-            # Clamp kelvin to valid range
             kelvin = max(1500, min(9000, kelvin))
 
-            # Get current brightness
             color = await self._run_sync(self._lifx_device.get_color)
             if color:
                 _, _, brightness, _ = color
-                # Set white color with specified temperature
-                # Hue=0, Saturation=0 = white
                 await self._run_sync(
                     self._lifx_device.set_color, [0, 0, brightness, kelvin]
                 )
 
             self.color_temp = kelvin
-            self.color = None  # Clear color when setting temp
+            self.color = None
             self.status = DeviceStatus.ONLINE
 
-            # Turn on if not already
             if not self.is_on:
                 await self.set_power(True)
         except Exception as e:
@@ -243,16 +220,7 @@ class LifxLight(Light):
 
 
 async def create_lifx_light(device_config: DeviceConfig, secrets: SecretsConfig) -> LifxLight:
-    """Factory function to create a LIFX light from config.
-
-    Args:
-        device_config: Device configuration
-        secrets: Secrets configuration (not used for LIFX but kept for interface consistency)
-
-    Returns:
-        Configured LifxLight instance
-    """
-    # Import lifxlan here to allow graceful handling if not installed
+    """Factory function to create a LIFX light from config."""
     try:
         import lifxlan
     except ImportError:
@@ -270,13 +238,10 @@ async def create_lifx_light(device_config: DeviceConfig, secrets: SecretsConfig)
         _ip=ip,
     )
 
-    # Try to find the device
     if mac and ip:
-        # Direct connection if we have both MAC and IP
         light._lifx_device = lifxlan.Light(mac, ip)
         logger.info(f"Created LIFX light {device_config.id} with MAC {mac} at {ip}")
     elif mac:
-        # Try to find by MAC via discovery
         lan = lifxlan.LifxLAN()
         devices = await asyncio.to_thread(lan.get_lights)
         for device in devices:
@@ -288,7 +253,6 @@ async def create_lifx_light(device_config: DeviceConfig, secrets: SecretsConfig)
         if light._lifx_device is None:
             logger.warning(f"Could not find LIFX light with MAC {mac}")
     else:
-        # Try to find by name via discovery
         lan = lifxlan.LifxLAN()
         devices = await asyncio.to_thread(lan.get_lights)
         for device in devices:
@@ -300,7 +264,6 @@ async def create_lifx_light(device_config: DeviceConfig, secrets: SecretsConfig)
         if light._lifx_device is None:
             logger.warning(f"Could not find LIFX light named {device_config.name}")
 
-    # Initial refresh if device was found
     if light._lifx_device:
         await light.refresh()
 

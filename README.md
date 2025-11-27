@@ -13,13 +13,59 @@ A Python-based home automation system with MCP (Model Context Protocol) interfac
 
 | Device Type | Brand | Protocol | Status |
 |-------------|-------|----------|--------|
-| Lights | LIFX | Local LAN | ✅ Implemented |
-| Lights | Govee | Cloud + Local UDP | 🔧 Stub |
-| Smart Plugs | Tuya-based | Local | ✅ Implemented |
-| Locks | August | Cloud | 🔧 Stub |
-| Vacuum | Roomba | Local | 🔧 Stub |
-| Camera | Ring | Cloud | 🔧 Stub |
-| Presence | mmWave/ESP32 | MQTT | ✅ Implemented |
+| Lights | LIFX | Local LAN | Implemented |
+| Lights | Govee | Cloud + Local UDP | Stub |
+| Smart Plugs | Tuya-based | Local | Implemented |
+| Locks | August | Cloud | Stub |
+| Vacuum | Roomba | Local | Stub |
+| Camera | Ring | Cloud | Stub |
+| Presence | mmWave/ESP32 | MQTT | Implemented |
+
+## Project Structure
+
+```
+burrow-mcp/
+├── pyproject.toml
+├── config/
+│   ├── config.yaml.example
+│   └── secrets.yaml.example
+├── src/
+│   ├── main.py              # Entry point
+│   ├── config.py            # Config loading
+│   ├── models/              # Data models
+│   │   ├── base.py          # Device, DeviceType, DeviceStatus
+│   │   ├── light.py         # Light model
+│   │   ├── plug.py          # Plug model
+│   │   ├── lock.py          # Lock model
+│   │   ├── vacuum.py        # Vacuum model
+│   │   ├── sensor.py        # Sensor model
+│   │   ├── camera.py        # Camera model
+│   │   ├── room.py          # Room model
+│   │   └── presence.py      # Presence state
+│   ├── devices/             # Device implementations
+│   │   ├── manager.py       # DeviceManager
+│   │   ├── lifx.py          # LIFX lights
+│   │   ├── govee.py         # Govee lights
+│   │   ├── tuya.py          # Tuya plugs
+│   │   ├── august.py        # August locks
+│   │   ├── roomba.py        # Roomba vacuums
+│   │   └── ring.py          # Ring cameras
+│   ├── presence/            # Presence detection
+│   │   └── mmwave.py        # mmWave sensor integration
+│   ├── state/               # State persistence
+│   │   └── store.py         # SQLite state store
+│   └── mcp/                 # MCP server
+│       ├── server.py        # Main server
+│       ├── tools.py         # Tool definitions
+│       └── handlers/        # Tool handlers
+│           ├── query.py     # Query handlers
+│           ├── lights.py    # Light control
+│           ├── plugs.py     # Plug control
+│           ├── locks.py     # Lock control
+│           ├── vacuum.py    # Vacuum control
+│           └── scenes.py    # Scene handlers
+└── tests/
+```
 
 ## Installation
 
@@ -51,11 +97,11 @@ cp config/secrets.yaml.example config/secrets.yaml
 ## Running the MCP Server
 
 ```bash
-# With uv
-uv run python -m burrow.main
+# With uv (from project root)
+PYTHONPATH=src uv run python -m main
 
-# Or directly
-python -m burrow.main
+# Or with installed package
+uv run burrow
 ```
 
 ## Claude Desktop Integration
@@ -67,7 +113,7 @@ Add to your `claude_desktop_config.json`:
   "mcpServers": {
     "burrow": {
       "command": "uv",
-      "args": ["run", "--directory", "/path/to/burrow-mcp", "python", "-m", "burrow.main"]
+      "args": ["run", "--directory", "/path/to/burrow-mcp", "burrow"]
     }
   }
 }
@@ -147,13 +193,13 @@ mqtt:
 uv sync --dev
 
 # Run tests
-uv run pytest
+PYTHONPATH=src uv run pytest
 
 # Run linting
-uv run ruff check .
+uv run ruff check src
 
 # Format code
-uv run ruff format .
+uv run ruff format src
 ```
 
 ## License

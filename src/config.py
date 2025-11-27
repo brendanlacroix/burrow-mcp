@@ -82,20 +82,16 @@ def find_config_dir() -> Path:
     """
     cwd = Path.cwd()
 
-    # Check ./config
     if (cwd / "config").is_dir():
         return cwd / "config"
 
-    # Check ../config
     if (cwd.parent / "config").is_dir():
         return cwd.parent / "config"
 
-    # Check ~/.config/burrow
     home_config = Path.home() / ".config" / "burrow"
     if home_config.is_dir():
         return home_config
 
-    # Default to ./config even if it doesn't exist
     return cwd / "config"
 
 
@@ -127,23 +123,14 @@ def load_secrets(config_dir: Path | None = None) -> SecretsConfig:
     return SecretsConfig.model_validate(data)
 
 
-def get_device_secret(secrets: SecretsConfig, device_type: str, device_id: str, key: str) -> str | None:
-    """Get a secret value for a specific device.
-
-    Args:
-        secrets: The secrets config
-        device_type: Type of device (e.g., "tuya", "august")
-        device_id: Device ID
-        key: Secret key to retrieve
-
-    Returns:
-        The secret value or None if not found
-    """
+def get_device_secret(
+    secrets: SecretsConfig, device_type: str, device_id: str, key: str
+) -> str | None:
+    """Get a secret value for a specific device."""
     type_secrets = getattr(secrets, device_type, {})
     if isinstance(type_secrets, dict):
         device_secrets = type_secrets.get(device_id, {})
         if isinstance(device_secrets, dict):
             return device_secrets.get(key)
-        # For flat structures like august
         return type_secrets.get(key)
     return None

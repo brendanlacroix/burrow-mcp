@@ -5,8 +5,9 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from burrow.config import DeviceConfig, SecretsConfig, get_device_secret
-from burrow.models.device import DeviceStatus, DeviceType, Plug
+from config import DeviceConfig, SecretsConfig, get_device_secret
+from models.base import DeviceStatus, DeviceType
+from models.plug import Plug
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +35,10 @@ class TuyaPlug(Plug):
         try:
             status = await self._run_sync(self._tuya_device.status)
             if status and "dps" in status:
-                # DPS 1 is typically the power state
                 self.is_on = status["dps"].get("1", False)
-                # DPS 19 is often power consumption in some plugs
                 power = status["dps"].get("19")
                 if power is not None:
-                    self.power_watts = float(power) / 10.0  # Often in 0.1W units
+                    self.power_watts = float(power) / 10.0
             self.status = DeviceStatus.ONLINE
         except Exception as e:
             logger.error(f"Failed to refresh Tuya plug {self.id}: {e}")
@@ -64,15 +63,7 @@ class TuyaPlug(Plug):
 
 
 async def create_tuya_plug(device_config: DeviceConfig, secrets: SecretsConfig) -> TuyaPlug:
-    """Factory function to create a Tuya plug from config.
-
-    Args:
-        device_config: Device configuration
-        secrets: Secrets configuration containing local keys
-
-    Returns:
-        Configured TuyaPlug instance
-    """
+    """Factory function to create a Tuya plug from config."""
     try:
         import tinytuya
     except ImportError:
@@ -82,7 +73,6 @@ async def create_tuya_plug(device_config: DeviceConfig, secrets: SecretsConfig) 
     device_id = device_config.config.get("device_id")
     ip = device_config.config.get("ip")
 
-    # Get local key from secrets
     local_key = get_device_secret(secrets, "tuya", device_config.id, "local_key")
     if not local_key:
         local_key = device_config.config.get("local_key")
@@ -99,16 +89,13 @@ async def create_tuya_plug(device_config: DeviceConfig, secrets: SecretsConfig) 
         _ip=ip,
     )
 
-    # Create the tinytuya device
     if ip:
         plug._tuya_device = tinytuya.OutletDevice(device_id, ip, local_key)
     else:
-        # Will need to scan for device
         plug._tuya_device = tinytuya.OutletDevice(device_id, "Auto", local_key)
 
-    plug._tuya_device.set_version(3.3)  # Most common version
+    plug._tuya_device.set_version(3.3)
 
-    # Initial refresh
     await plug.refresh()
 
     return plug

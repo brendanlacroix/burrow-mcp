@@ -4,8 +4,9 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from burrow.config import DeviceConfig, SecretsConfig
-from burrow.models.device import DeviceStatus, DeviceType, Lock, LockState
+from config import DeviceConfig, SecretsConfig
+from models.base import DeviceStatus, DeviceType
+from models.lock import Lock
 
 logger = logging.getLogger(__name__)
 
@@ -26,34 +27,22 @@ class AugustLock(Lock):
 
     async def lock(self) -> None:
         """Lock the door."""
-        # TODO: Implement August lock control
         logger.warning(f"August lock not yet implemented for {self.id}")
         raise NotImplementedError("August lock control not yet implemented")
 
     async def unlock(self) -> None:
         """Unlock the door."""
-        # TODO: Implement August unlock control
         logger.warning(f"August unlock not yet implemented for {self.id}")
         raise NotImplementedError("August lock control not yet implemented")
 
 
 async def create_august_lock(device_config: DeviceConfig, secrets: SecretsConfig) -> AugustLock:
-    """Factory function to create an August lock from config.
-
-    Args:
-        device_config: Device configuration
-        secrets: Secrets configuration containing August credentials
-
-    Returns:
-        Configured AugustLock instance
-    """
+    """Factory function to create an August lock from config."""
     lock_id = secrets.august.get("lock_id") or device_config.config.get("lock_id")
 
-    lock = AugustLock(
+    return AugustLock(
         id=device_config.id,
         name=device_config.name,
         room_id=device_config.room,
         _lock_id=lock_id,
     )
-
-    return lock

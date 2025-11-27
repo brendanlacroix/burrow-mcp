@@ -1,12 +1,12 @@
 """Device implementations for Burrow MCP."""
 
-from burrow.devices.august import AugustLock, create_august_lock
-from burrow.devices.base import DeviceManager
-from burrow.devices.govee import GoveeLight, create_govee_light
-from burrow.devices.lifx import LifxLight, create_lifx_light
-from burrow.devices.ring import RingCamera, create_ring_camera
-from burrow.devices.roomba import RoombaVacuum, create_roomba_vacuum
-from burrow.devices.tuya import TuyaPlug, create_tuya_plug
+from devices.august import AugustLock, create_august_lock
+from devices.govee import GoveeLight, create_govee_light
+from devices.lifx import LifxLight, create_lifx_light
+from devices.manager import DeviceManager
+from devices.ring import RingCamera, create_ring_camera
+from devices.roomba import RoombaVacuum, create_roomba_vacuum
+from devices.tuya import TuyaPlug, create_tuya_plug
 
 __all__ = [
     "AugustLock",
@@ -23,7 +23,6 @@ __all__ = [
     "create_roomba_vacuum",
     "create_tuya_plug",
 ]
-
 
 # Device type to factory mapping
 DEVICE_FACTORIES = {

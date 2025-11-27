@@ -4,8 +4,9 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from burrow.config import DeviceConfig, SecretsConfig
-from burrow.models.device import DeviceStatus, DeviceType, Vacuum, VacuumState
+from config import DeviceConfig, SecretsConfig
+from models.base import DeviceStatus, DeviceType
+from models.vacuum import Vacuum
 
 logger = logging.getLogger(__name__)
 
@@ -28,19 +29,16 @@ class RoombaVacuum(Vacuum):
 
     async def start(self) -> None:
         """Start cleaning."""
-        # TODO: Implement Roomba start
         logger.warning(f"Roomba start not yet implemented for {self.id}")
         raise NotImplementedError("Roomba control not yet implemented")
 
     async def stop(self) -> None:
         """Stop cleaning."""
-        # TODO: Implement Roomba stop
         logger.warning(f"Roomba stop not yet implemented for {self.id}")
         raise NotImplementedError("Roomba control not yet implemented")
 
     async def dock(self) -> None:
         """Return to dock."""
-        # TODO: Implement Roomba dock
         logger.warning(f"Roomba dock not yet implemented for {self.id}")
         raise NotImplementedError("Roomba control not yet implemented")
 
@@ -48,20 +46,12 @@ class RoombaVacuum(Vacuum):
 async def create_roomba_vacuum(
     device_config: DeviceConfig, secrets: SecretsConfig
 ) -> RoombaVacuum:
-    """Factory function to create a Roomba vacuum from config.
-
-    Args:
-        device_config: Device configuration
-        secrets: Secrets configuration containing Roomba credentials
-
-    Returns:
-        Configured RoombaVacuum instance
-    """
+    """Factory function to create a Roomba vacuum from config."""
     ip = device_config.config.get("ip")
     blid = secrets.roomba.get("blid") or device_config.config.get("blid")
     password = secrets.roomba.get("password") or device_config.config.get("password")
 
-    vacuum = RoombaVacuum(
+    return RoombaVacuum(
         id=device_config.id,
         name=device_config.name,
         room_id=device_config.room,
@@ -69,5 +59,3 @@ async def create_roomba_vacuum(
         _blid=blid,
         _password=password,
     )
-
-    return vacuum
