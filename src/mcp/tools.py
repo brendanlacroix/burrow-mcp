@@ -1,6 +1,87 @@
-"""MCP tool definitions for Burrow."""
+"""MCP tool definitions for Burrow.
+
+This module defines all MCP tools available for home automation control.
+Tools are organized by category: discovery, query, lights, plugs, locks, vacuum, scenes.
+"""
 
 from mcp.types import Tool
+
+
+# Tool category metadata for discovery
+TOOL_CATEGORIES = {
+    "discovery": {
+        "name": "Discovery & Help",
+        "description": "Tools for discovering available capabilities and getting help",
+        "tools": ["discover_tools", "get_system_status"],
+    },
+    "query": {
+        "name": "Query",
+        "description": "Tools for querying room, device, and presence state",
+        "tools": ["list_rooms", "get_room_state", "list_devices", "get_device_state", "get_presence"],
+    },
+    "lights": {
+        "name": "Lighting Control",
+        "description": "Tools for controlling lights (power, brightness, color, temperature)",
+        "tools": ["set_light_power", "set_light_brightness", "set_light_color",
+                  "set_light_temperature", "set_room_lights"],
+    },
+    "plugs": {
+        "name": "Smart Plugs",
+        "description": "Tools for controlling smart plugs",
+        "tools": ["set_plug_power"],
+    },
+    "locks": {
+        "name": "Door Locks",
+        "description": "Tools for controlling door locks (security-sensitive)",
+        "tools": ["lock_door", "unlock_door"],
+    },
+    "vacuum": {
+        "name": "Vacuum Control",
+        "description": "Tools for controlling robot vacuums",
+        "tools": ["start_vacuum", "stop_vacuum", "dock_vacuum"],
+    },
+    "scenes": {
+        "name": "Scenes & Automation",
+        "description": "Tools for predefined automation scenes",
+        "tools": ["list_scenes", "activate_scene"],
+    },
+}
+
+
+def get_discovery_tools() -> list[Tool]:
+    """Get discovery and help tool definitions."""
+    return [
+        Tool(
+            name="discover_tools",
+            description=(
+                "List all available home automation tools organized by category. "
+                "Use this first to understand what actions are possible. "
+                "Returns tool names, descriptions, and usage examples for each category."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "enum": list(TOOL_CATEGORIES.keys()),
+                        "description": "Filter to a specific category (optional)",
+                    },
+                },
+            },
+        ),
+        Tool(
+            name="get_system_status",
+            description=(
+                "Get overall system health and status. "
+                "Returns device connectivity, error counts, and any current issues. "
+                "Useful for diagnosing problems or checking if the system is working correctly."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+    ]
 
 
 def get_query_tools() -> list[Tool]:
@@ -341,7 +422,8 @@ def get_scene_tools() -> list[Tool]:
 def get_all_tools() -> list[Tool]:
     """Get all tool definitions."""
     return (
-        get_query_tools()
+        get_discovery_tools()
+        + get_query_tools()
         + get_light_tools()
         + get_plug_tools()
         + get_lock_tools()

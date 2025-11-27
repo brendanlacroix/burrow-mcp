@@ -17,6 +17,8 @@ from mcp.handlers import (
     QueryHandlers,
     SceneHandlers,
     VacuumHandlers,
+    handle_discover_tools,
+    handle_get_system_status,
 )
 from mcp.tools import get_all_tools
 from presence import PresenceManager
@@ -67,8 +69,14 @@ class BurrowMcpServer:
 
     async def _handle_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         """Route tool calls to appropriate handlers."""
+        # Discovery tools
+        if name == "discover_tools":
+            return await handle_discover_tools(args, self.device_manager)
+        elif name == "get_system_status":
+            return await handle_get_system_status(args, self.device_manager)
+
         # Query tools
-        if name == "list_rooms":
+        elif name == "list_rooms":
             return await self.query.list_rooms(args)
         elif name == "get_room_state":
             return await self.query.get_room_state(args)
