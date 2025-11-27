@@ -8,6 +8,7 @@ A Python-based home automation system with MCP (Model Context Protocol) interfac
 - Room-based organization with presence awareness
 - Local control preferred, cloud fallback where necessary
 - Clean abstractions for adding new device types
+- Device discovery helpers for easy setup
 
 ## Supported Devices
 
@@ -21,52 +22,6 @@ A Python-based home automation system with MCP (Model Context Protocol) interfac
 | Camera | Ring | Cloud | Stub |
 | Presence | mmWave/ESP32 | MQTT | Implemented |
 
-## Project Structure
-
-```
-burrow-mcp/
-├── pyproject.toml
-├── config/
-│   ├── config.yaml.example
-│   └── secrets.yaml.example
-├── src/
-│   ├── main.py              # Entry point
-│   ├── config.py            # Config loading
-│   ├── models/              # Data models
-│   │   ├── base.py          # Device, DeviceType, DeviceStatus
-│   │   ├── light.py         # Light model
-│   │   ├── plug.py          # Plug model
-│   │   ├── lock.py          # Lock model
-│   │   ├── vacuum.py        # Vacuum model
-│   │   ├── sensor.py        # Sensor model
-│   │   ├── camera.py        # Camera model
-│   │   ├── room.py          # Room model
-│   │   └── presence.py      # Presence state
-│   ├── devices/             # Device implementations
-│   │   ├── manager.py       # DeviceManager
-│   │   ├── lifx.py          # LIFX lights
-│   │   ├── govee.py         # Govee lights
-│   │   ├── tuya.py          # Tuya plugs
-│   │   ├── august.py        # August locks
-│   │   ├── roomba.py        # Roomba vacuums
-│   │   └── ring.py          # Ring cameras
-│   ├── presence/            # Presence detection
-│   │   └── mmwave.py        # mmWave sensor integration
-│   ├── state/               # State persistence
-│   │   └── store.py         # SQLite state store
-│   └── mcp/                 # MCP server
-│       ├── server.py        # Main server
-│       ├── tools.py         # Tool definitions
-│       └── handlers/        # Tool handlers
-│           ├── query.py     # Query handlers
-│           ├── lights.py    # Light control
-│           ├── plugs.py     # Plug control
-│           ├── locks.py     # Lock control
-│           ├── vacuum.py    # Vacuum control
-│           └── scenes.py    # Scene handlers
-└── tests/
-```
-
 ## Installation
 
 ```bash
@@ -77,31 +32,130 @@ cd burrow-mcp
 # Install with uv (recommended)
 uv sync
 
+# With discovery extras (for better network scanning)
+uv sync --extra discovery
+
 # Or with pip
 pip install -e .
 ```
 
-## Configuration
-
-1. Copy the example config files:
+## Quick Start
 
 ```bash
-cp config/config.yaml.example config/config.yaml
-cp config/secrets.yaml.example config/secrets.yaml
+# Initialize config files
+burrow config init
+
+# Discover devices on your network
+burrow discover lifx          # Find LIFX bulbs
+burrow discover tuya          # Tuya setup guide
+burrow discover mqtt --host 192.168.1.x  # Scan MQTT topics
+burrow discover network       # General mDNS scan
+
+# Validate your configuration
+burrow config validate
+
+# Run the MCP server
+burrow serve
 ```
 
-2. Edit `config/config.yaml` with your room and device setup.
+## CLI Commands
 
-3. Edit `config/secrets.yaml` with your API keys and credentials.
+### `burrow serve`
 
-## Running the MCP Server
+Run the MCP server for Claude integration.
 
 ```bash
-# With uv (from project root)
-PYTHONPATH=src uv run python -m main
+burrow serve
+burrow serve --config-dir /path/to/config
+```
 
-# Or with installed package
-uv run burrow
+### `burrow discover`
+
+Discover devices on the network.
+
+```bash
+# LIFX bulbs (uses mDNS)
+burrow discover lifx
+burrow discover lifx --timeout 10
+burrow discover lifx --room living_room
+
+# Tuya devices (prints setup guide)
+burrow discover tuya
+burrow discover tuya --scan  # Scan network (needs local keys first)
+
+# MQTT topics (for presence sensors)
+burrow discover mqtt --host 192.168.1.100
+burrow discover mqtt --host broker.local --topic "home/#" --timeout 30
+
+# General network scan
+burrow discover network
+burrow discover network --timeout 10
+```
+
+### `burrow config`
+
+Configuration utilities.
+
+```bash
+# Create example config files
+burrow config init
+burrow config init --config-dir ./my-config
+
+# Validate configuration
+burrow config validate
+burrow config validate --config-dir ./my-config
+```
+
+## Configuration
+
+Config files go in `./config/` by default:
+
+### config.yaml
+
+```yaml
+house:
+  name: "My Home"
+  timezone: "America/New_York"
+
+rooms:
+  - id: living_room
+    name: Living Room
+    floor: 1
+  - id: bedroom
+    name: Bedroom
+    floor: 1
+
+devices:
+  # Run 'burrow discover lifx' to generate these
+  - id: lifx_living_main
+    name: "Living Room Light"
+    type: lifx
+    room: living_room
+    config:
+      mac: "d0:73:d5:xx:xx:xx"
+      ip: "192.168.1.100"
+
+scenes:
+  - id: goodnight
+    name: Goodnight
+    actions:
+      - type: room_lights
+        room: all
+        on: false
+```
+
+### secrets.yaml
+
+```yaml
+# Tuya local keys
+tuya:
+  plug_living_room:
+    local_key: "xxxxxxxxxxxxxxxx"
+
+# MQTT broker
+mqtt:
+  host: "192.168.1.100"
+  port: 1883
 ```
 
 ## Claude Desktop Integration
@@ -113,7 +167,7 @@ Add to your `claude_desktop_config.json`:
   "mcpServers": {
     "burrow": {
       "command": "uv",
-      "args": ["run", "--directory", "/path/to/burrow-mcp", "burrow"]
+      "args": ["run", "--directory", "/path/to/burrow-mcp", "burrow", "serve"]
     }
   }
 }
@@ -157,33 +211,30 @@ Add to your `claude_desktop_config.json`:
 - `list_scenes` - List available scenes
 - `activate_scene` - Activate a predefined scene
 
-## Getting Tuya Local Keys
+## Project Structure
 
-Tuya plugs require local keys for local control:
-
-```bash
-python -m tinytuya wizard
 ```
-
-This requires a Tuya IoT developer account (free).
-
-## mmWave Presence Sensors
-
-Recommended hardware: ESP32 + HLK-LD2410 sensor with ESPHome firmware.
-
-Example ESPHome config:
-
-```yaml
-ld2410:
-
-binary_sensor:
-  - platform: ld2410
-    has_target:
-      name: "Presence"
-
-mqtt:
-  broker: 192.168.1.xxx
-  topic_prefix: burrow/presence/living_room
+burrow-mcp/
+├── pyproject.toml
+├── config/
+│   ├── config.yaml.example
+│   └── secrets.yaml.example
+├── src/
+│   ├── cli.py               # CLI entry point
+│   ├── main.py              # MCP server entry
+│   ├── config.py            # Config loading
+│   ├── models/              # Data models
+│   ├── devices/             # Device implementations
+│   ├── presence/            # Presence detection
+│   ├── state/               # State persistence
+│   ├── mcp/                 # MCP server & handlers
+│   └── discovery/           # Device discovery
+│       ├── lifx.py          # LIFX discovery
+│       ├── tuya.py          # Tuya setup helper
+│       ├── mqtt.py          # MQTT scanner
+│       ├── network.py       # mDNS/SSDP scanner
+│       └── config_utils.py  # Config helpers
+└── tests/
 ```
 
 ## Development

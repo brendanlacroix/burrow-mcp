@@ -19,9 +19,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-asyncio", "ruff"]
+discovery = ["zeroconf"]      # Better network discovery
 
 [project.scripts]
-burrow = "main:run"
+burrow = "cli:main"
 
 [build-system]
 requires = ["hatchling"]
