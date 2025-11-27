@@ -1,0 +1,114 @@
+house:
+  name: "Bunny's Burrow"
+  timezone: "America/New_York"
+
+rooms:
+  - id: living_room
+    name: Living Room
+    floor: 1
+  - id: bedroom
+    name: Bedroom
+    floor: 1
+  - id: kitchen
+    name: Kitchen
+    floor: 1
+  - id: bathroom
+    name: Bathroom
+    floor: 1
+  - id: office
+    name: Office
+    floor: 1
+
+devices:
+  # LIFX Lights
+  - id: lifx_living_main
+    name: Living Room Main
+    type: lifx
+    room: living_room
+    config:
+      mac: "d0:73:d5:xx:xx:xx"  # optional, can auto-discover
+
+  - id: lifx_bedroom
+    name: Bedroom Light
+    type: lifx
+    room: bedroom
+
+  # Govee Lights
+  - id: govee_tv_backlight
+    name: TV Backlight
+    type: govee
+    room: living_room
+    config:
+      device_id: "XX:XX:XX:XX:XX:XX"
+      model: "H6054"
+
+  # Tuya Plugs
+  - id: plug_tv
+    name: TV Plug
+    type: tuya
+    room: living_room
+    config:
+      device_id: "xxx"
+      ip: "192.168.1.xxx"
+
+  # August Lock
+  - id: lock_front
+    name: Front Door
+    type: august
+    room: null  # not in a room
+    config:
+      lock_id: "from_secrets"
+
+  # Roomba
+  - id: roomba_main
+    name: Roomba
+    type: roomba
+    room: null
+    config:
+      ip: "192.168.1.xxx"
+
+  # Presence Sensors
+  - id: mmwave_living
+    name: Living Room Presence
+    type: mmwave
+    room: living_room
+    config:
+      mqtt_topic: "burrow/presence/living_room"
+
+scenes:
+  - id: goodnight
+    name: Goodnight
+    actions:
+      - type: room_lights
+        room: all
+        on: false
+      - type: lock
+        device: lock_front
+        action: lock
+
+  - id: movie
+    name: Movie Mode
+    actions:
+      - type: room_lights
+        room: living_room
+        on: true
+        brightness: 15
+        kelvin: 2700
+      - type: device
+        device: govee_tv_backlight
+        on: true
+        color: "#1a1a2e"
+
+  - id: morning
+    name: Morning
+    actions:
+      - type: room_lights
+        room: living_room
+        on: true
+        brightness: 80
+        kelvin: 4000
+      - type: room_lights
+        room: kitchen
+        on: true
+        brightness: 100
+        kelvin: 5000
