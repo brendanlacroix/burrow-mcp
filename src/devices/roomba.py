@@ -11,8 +11,16 @@ from typing import Any
 from config import DeviceConfig, SecretsConfig
 from models.base import DeviceStatus, DeviceType
 from models.vacuum import Vacuum, VacuumState
+from utils.retry import CircuitBreaker, CircuitBreakerOpen, retry_async
 
 logger = logging.getLogger(__name__)
+
+# Circuit breaker for Roomba MQTT operations (shared across all Roomba devices)
+_roomba_circuit_breaker = CircuitBreaker(
+    failure_threshold=5,
+    recovery_timeout=60.0,
+    half_open_max_calls=2,
+)
 
 
 # Roomba phase to VacuumState mapping
@@ -40,6 +48,31 @@ class RoombaVacuum(Vacuum):
     _robot: Any = field(default=None, repr=False)
     _connected: bool = False
 
+    async def _run_with_retry(self, func: Any, *args: Any) -> Any:
+        """Run a Roomba function with retry and circuit breaker.
+
+        Uses retry for transient network errors and circuit breaker
+        to prevent hammering an unresponsive device.
+        """
+        if _roomba_circuit_breaker.is_open:
+            raise CircuitBreakerOpen("Roomba circuit breaker is open")
+
+        try:
+            result = await retry_async(
+                asyncio.to_thread,
+                func,
+                *args,
+                max_attempts=3,
+                initial_delay=1.0,
+                max_delay=10.0,
+                retryable_exceptions=(OSError, TimeoutError, ConnectionError),
+            )
+            _roomba_circuit_breaker.record_success()
+            return result
+        except Exception:
+            _roomba_circuit_breaker.record_failure()
+            raise
+
     async def _ensure_connected(self) -> bool:
         """Ensure connection to Roomba."""
         if self._robot is None:
@@ -48,10 +81,13 @@ class RoombaVacuum(Vacuum):
 
         if not self._connected:
             try:
-                # roombapy connect is synchronous, run in thread
-                await asyncio.to_thread(self._robot.connect)
+                # roombapy connect is synchronous, run in thread with retry
+                await self._run_with_retry(self._robot.connect)
                 self._connected = True
                 logger.info(f"Connected to Roomba {self.id}")
+            except CircuitBreakerOpen:
+                logger.warning(f"Circuit breaker open for Roomba {self.id}")
+                return False
             except Exception as e:
                 logger.error(f"Failed to connect to Roomba {self.id}: {e}")
                 return False
@@ -101,11 +137,15 @@ class RoombaVacuum(Vacuum):
             raise RuntimeError(f"Roomba {self.id} not connected")
 
         try:
-            await asyncio.to_thread(self._robot.send_command, "start")
+            await self._run_with_retry(self._robot.send_command, "start")
             self.vacuum_state = VacuumState.CLEANING
             self.status = DeviceStatus.ONLINE
             logger.info(f"Started Roomba {self.id}")
 
+        except CircuitBreakerOpen:
+            logger.warning(f"Circuit breaker open for Roomba {self.id}")
+            self.status = DeviceStatus.OFFLINE
+            raise RuntimeError(f"Roomba {self.id} temporarily unavailable (circuit breaker open)")
         except Exception as e:
             logger.error(f"Failed to start Roomba {self.id}: {e}")
             raise
@@ -116,11 +156,15 @@ class RoombaVacuum(Vacuum):
             raise RuntimeError(f"Roomba {self.id} not connected")
 
         try:
-            await asyncio.to_thread(self._robot.send_command, "stop")
+            await self._run_with_retry(self._robot.send_command, "stop")
             self.vacuum_state = VacuumState.PAUSED
             self.status = DeviceStatus.ONLINE
             logger.info(f"Stopped Roomba {self.id}")
 
+        except CircuitBreakerOpen:
+            logger.warning(f"Circuit breaker open for Roomba {self.id}")
+            self.status = DeviceStatus.OFFLINE
+            raise RuntimeError(f"Roomba {self.id} temporarily unavailable (circuit breaker open)")
         except Exception as e:
             logger.error(f"Failed to stop Roomba {self.id}: {e}")
             raise
@@ -131,11 +175,15 @@ class RoombaVacuum(Vacuum):
             raise RuntimeError(f"Roomba {self.id} not connected")
 
         try:
-            await asyncio.to_thread(self._robot.send_command, "dock")
+            await self._run_with_retry(self._robot.send_command, "dock")
             self.vacuum_state = VacuumState.RETURNING
             self.status = DeviceStatus.ONLINE
             logger.info(f"Sending Roomba {self.id} to dock")
 
+        except CircuitBreakerOpen:
+            logger.warning(f"Circuit breaker open for Roomba {self.id}")
+            self.status = DeviceStatus.OFFLINE
+            raise RuntimeError(f"Roomba {self.id} temporarily unavailable (circuit breaker open)")
         except Exception as e:
             logger.error(f"Failed to dock Roomba {self.id}: {e}")
             raise
@@ -150,11 +198,15 @@ class RoombaVacuum(Vacuum):
             raise RuntimeError(f"Roomba {self.id} not connected")
 
         try:
-            await asyncio.to_thread(self._robot.send_command, "resume")
+            await self._run_with_retry(self._robot.send_command, "resume")
             self.vacuum_state = VacuumState.CLEANING
             self.status = DeviceStatus.ONLINE
             logger.info(f"Resumed Roomba {self.id}")
 
+        except CircuitBreakerOpen:
+            logger.warning(f"Circuit breaker open for Roomba {self.id}")
+            self.status = DeviceStatus.OFFLINE
+            raise RuntimeError(f"Roomba {self.id} temporarily unavailable (circuit breaker open)")
         except Exception as e:
             logger.error(f"Failed to resume Roomba {self.id}: {e}")
             raise
@@ -168,6 +220,14 @@ class RoombaVacuum(Vacuum):
                 logger.info(f"Disconnected from Roomba {self.id}")
             except Exception as e:
                 logger.warning(f"Error disconnecting from Roomba {self.id}: {e}")
+
+    async def reconnect(self) -> None:
+        """Attempt to reconnect to Roomba."""
+        # Reset circuit breaker to allow retry
+        _roomba_circuit_breaker.reset()
+        # Disconnect first
+        self._connected = False
+        await self.refresh()
 
 
 async def create_roomba_vacuum(

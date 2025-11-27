@@ -1,10 +1,14 @@
 """Query handlers for Burrow MCP."""
 
+import logging
 from typing import Any
 
 from devices.manager import DeviceManager
 from models import DeviceStatus, DeviceType
 from presence import PresenceManager
+from utils.errors import DEFAULT_DEVICE_TIMEOUT, execute_with_timeout
+
+logger = logging.getLogger(__name__)
 
 
 class QueryHandlers:
@@ -73,7 +77,20 @@ class QueryHandlers:
         if device is None:
             return {"error": f"Device not found: {device_id}"}
 
-        await self.device_manager.refresh_device(device_id)
+        try:
+            await execute_with_timeout(
+                self.device_manager.refresh_device(device_id),
+                timeout=DEFAULT_DEVICE_TIMEOUT,
+                device_id=device_id,
+                operation="refresh",
+            )
+        except Exception as e:
+            logger.warning(f"Failed to refresh device {device_id}: {e}")
+            # Return cached state with warning
+            response = self.device_manager.device_to_response(device)
+            response["warning"] = f"Using cached state: {e}"
+            return response
+
         return self.device_manager.device_to_response(device)
 
     async def get_presence(self, args: dict[str, Any]) -> dict[str, Any]:

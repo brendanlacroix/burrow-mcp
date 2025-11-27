@@ -8,8 +8,16 @@ from typing import Any
 from config import DeviceConfig, SecretsConfig
 from models.base import DeviceStatus, DeviceType
 from models.light import Light
+from utils.retry import CircuitBreaker, CircuitBreakerOpen, retry_async
 
 logger = logging.getLogger(__name__)
+
+# Circuit breaker for LIFX LAN operations (shared across all LIFX devices)
+_lifx_circuit_breaker = CircuitBreaker(
+    failure_threshold=5,
+    recovery_timeout=30.0,
+    half_open_max_calls=2,
+)
 
 
 def hex_to_hsbk(hex_color: str) -> tuple[int, int, int, int]:
@@ -103,6 +111,31 @@ class LifxLight(Light):
         """Run a synchronous LIFX function in a thread."""
         return await asyncio.to_thread(func, *args)
 
+    async def _run_with_retry(self, func: Any, *args: Any) -> Any:
+        """Run a LIFX function with retry and circuit breaker.
+
+        Uses retry for transient network errors and circuit breaker
+        to prevent hammering an unresponsive device.
+        """
+        if _lifx_circuit_breaker.is_open:
+            raise CircuitBreakerOpen("LIFX circuit breaker is open")
+
+        try:
+            result = await retry_async(
+                self._run_sync,
+                func,
+                *args,
+                max_attempts=3,
+                initial_delay=0.5,
+                max_delay=5.0,
+                retryable_exceptions=(OSError, TimeoutError, ConnectionError),
+            )
+            _lifx_circuit_breaker.record_success()
+            return result
+        except Exception as e:
+            _lifx_circuit_breaker.record_failure()
+            raise
+
     async def refresh(self) -> None:
         """Fetch current state from the LIFX bulb."""
         if self._lifx_device is None:
@@ -110,10 +143,10 @@ class LifxLight(Light):
             return
 
         try:
-            power = await self._run_sync(self._lifx_device.get_power)
+            power = await self._run_with_retry(self._lifx_device.get_power)
             self.is_on = power > 0
 
-            color = await self._run_sync(self._lifx_device.get_color)
+            color = await self._run_with_retry(self._lifx_device.get_color)
             if color:
                 hue, saturation, brightness, kelvin = color
                 self.brightness = int((brightness / 65535.0) * 100)
@@ -125,6 +158,9 @@ class LifxLight(Light):
                     self.color = None
 
             self.status = DeviceStatus.ONLINE
+        except CircuitBreakerOpen:
+            logger.warning(f"Circuit breaker open for LIFX {self.id}")
+            self.status = DeviceStatus.OFFLINE
         except Exception as e:
             logger.error(f"Failed to refresh LIFX {self.id}: {e}")
             self.status = DeviceStatus.OFFLINE
@@ -136,9 +172,13 @@ class LifxLight(Light):
 
         try:
             power = 65535 if on else 0
-            await self._run_sync(self._lifx_device.set_power, power)
+            await self._run_with_retry(self._lifx_device.set_power, power)
             self.is_on = on
             self.status = DeviceStatus.ONLINE
+        except CircuitBreakerOpen:
+            logger.warning(f"Circuit breaker open for LIFX {self.id}")
+            self.status = DeviceStatus.OFFLINE
+            raise RuntimeError(f"LIFX device {self.id} temporarily unavailable (circuit breaker open)")
         except Exception as e:
             logger.error(f"Failed to set power for LIFX {self.id}: {e}")
             self.status = DeviceStatus.OFFLINE
@@ -152,11 +192,11 @@ class LifxLight(Light):
         try:
             brightness = max(0, min(100, brightness))
 
-            color = await self._run_sync(self._lifx_device.get_color)
+            color = await self._run_with_retry(self._lifx_device.get_color)
             if color:
                 hue, saturation, _, kelvin = color
                 lifx_brightness = int((brightness / 100.0) * 65535)
-                await self._run_sync(
+                await self._run_with_retry(
                     self._lifx_device.set_color, [hue, saturation, lifx_brightness, kelvin]
                 )
 
@@ -164,6 +204,10 @@ class LifxLight(Light):
             if brightness > 0 and not self.is_on:
                 await self.set_power(True)
             self.status = DeviceStatus.ONLINE
+        except CircuitBreakerOpen:
+            logger.warning(f"Circuit breaker open for LIFX {self.id}")
+            self.status = DeviceStatus.OFFLINE
+            raise RuntimeError(f"LIFX device {self.id} temporarily unavailable (circuit breaker open)")
         except Exception as e:
             logger.error(f"Failed to set brightness for LIFX {self.id}: {e}")
             self.status = DeviceStatus.OFFLINE
@@ -179,7 +223,7 @@ class LifxLight(Light):
 
         try:
             hue, saturation, brightness, kelvin = hex_to_hsbk(color)
-            await self._run_sync(
+            await self._run_with_retry(
                 self._lifx_device.set_color, [hue, saturation, brightness, kelvin]
             )
             self.color = color
@@ -187,6 +231,10 @@ class LifxLight(Light):
 
             if not self.is_on:
                 await self.set_power(True)
+        except CircuitBreakerOpen:
+            logger.warning(f"Circuit breaker open for LIFX {self.id}")
+            self.status = DeviceStatus.OFFLINE
+            raise RuntimeError(f"LIFX device {self.id} temporarily unavailable (circuit breaker open)")
         except Exception as e:
             logger.error(f"Failed to set color for LIFX {self.id}: {e}")
             self.status = DeviceStatus.OFFLINE
@@ -200,10 +248,10 @@ class LifxLight(Light):
         try:
             kelvin = max(1500, min(9000, kelvin))
 
-            color = await self._run_sync(self._lifx_device.get_color)
+            color = await self._run_with_retry(self._lifx_device.get_color)
             if color:
                 _, _, brightness, _ = color
-                await self._run_sync(
+                await self._run_with_retry(
                     self._lifx_device.set_color, [0, 0, brightness, kelvin]
                 )
 
@@ -213,10 +261,20 @@ class LifxLight(Light):
 
             if not self.is_on:
                 await self.set_power(True)
+        except CircuitBreakerOpen:
+            logger.warning(f"Circuit breaker open for LIFX {self.id}")
+            self.status = DeviceStatus.OFFLINE
+            raise RuntimeError(f"LIFX device {self.id} temporarily unavailable (circuit breaker open)")
         except Exception as e:
             logger.error(f"Failed to set color temp for LIFX {self.id}: {e}")
             self.status = DeviceStatus.OFFLINE
             raise
+
+    async def reconnect(self) -> None:
+        """Attempt to reconnect to the LIFX device."""
+        # Reset circuit breaker to allow retry
+        _lifx_circuit_breaker.reset()
+        await self.refresh()
 
 
 async def create_lifx_light(device_config: DeviceConfig, secrets: SecretsConfig) -> LifxLight:

@@ -1,5 +1,6 @@
 """MCP server implementation for Burrow home automation."""
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -22,8 +23,19 @@ from mcp_server.handlers import (
 )
 from mcp_server.tools import get_all_tools
 from presence import PresenceManager
+from utils.errors import (
+    DEFAULT_HANDLER_TIMEOUT,
+    ErrorCategory,
+    ToolError,
+    classify_exception,
+    generate_request_id,
+    get_recovery_suggestion,
+)
 
 logger = logging.getLogger(__name__)
+
+# Timeout for tool handler execution
+TOOL_TIMEOUT = DEFAULT_HANDLER_TIMEOUT
 
 
 class BurrowMcpServer:
@@ -60,12 +72,42 @@ class BurrowMcpServer:
 
         @self.server.call_tool()
         async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+            request_id = generate_request_id()
+            device_id = arguments.get("device_id")
+
+            logger.info(
+                f"[{request_id}] Tool call: {name} "
+                f"(device={device_id or 'N/A'})"
+            )
+
             try:
-                result = await self._handle_tool(name, arguments)
+                # Execute with timeout protection
+                async with asyncio.timeout(TOOL_TIMEOUT):
+                    result = await self._handle_tool(name, arguments)
+
+                # Add request_id to successful responses for tracing
+                if isinstance(result, dict) and "error" not in result:
+                    result["request_id"] = request_id
+
+                logger.info(f"[{request_id}] Tool {name} completed successfully")
                 return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+            except asyncio.TimeoutError:
+                logger.error(f"[{request_id}] Tool {name} timed out after {TOOL_TIMEOUT}s")
+                error = ToolError(
+                    category=ErrorCategory.TIMEOUT,
+                    message=f"Operation timed out after {TOOL_TIMEOUT} seconds",
+                    device_id=device_id,
+                    request_id=request_id,
+                    recovery=get_recovery_suggestion(ErrorCategory.TIMEOUT),
+                )
+                return [TextContent(type="text", text=json.dumps(error.to_dict(), indent=2))]
+
             except Exception as e:
-                logger.exception(f"Error handling tool {name}")
-                return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
+                logger.exception(f"[{request_id}] Error handling tool {name}: {e}")
+                error = classify_exception(e, device_id)
+                error.request_id = request_id
+                return [TextContent(type="text", text=json.dumps(error.to_dict(), indent=2))]
 
     async def _handle_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         """Route tool calls to appropriate handlers."""

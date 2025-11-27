@@ -7,13 +7,21 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from config import DeviceConfig, SecretsConfig
 from models.base import DeviceStatus, DeviceType
 from models.lock import Lock, LockState
+from utils.retry import CircuitBreaker, CircuitBreakerOpen, retry_async
 
 logger = logging.getLogger(__name__)
+
+# Circuit breaker for August API operations (shared across all August devices)
+_august_circuit_breaker = CircuitBreaker(
+    failure_threshold=5,
+    recovery_timeout=60.0,
+    half_open_max_calls=2,
+)
 
 # Token cache file location
 TOKEN_CACHE_PATH = Path.home() / ".cache" / "burrow" / "august_token.json"
@@ -28,6 +36,32 @@ class AugustLock(Lock):
     _api: Any = field(default=None, repr=False)
     _authenticator: Any = field(default=None, repr=False)
     _authentication: Any = field(default=None, repr=False)
+
+    async def _run_with_retry(self, coro_func: Callable[..., Any], *args: Any) -> Any:
+        """Run an August API call with retry and circuit breaker.
+
+        Uses retry for transient network errors and circuit breaker
+        to prevent hammering an unresponsive service.
+        """
+        if _august_circuit_breaker.is_open:
+            raise CircuitBreakerOpen("August circuit breaker is open")
+
+        async def call_api():
+            return await coro_func(*args)
+
+        try:
+            result = await retry_async(
+                call_api,
+                max_attempts=3,
+                initial_delay=1.0,
+                max_delay=10.0,
+                retryable_exceptions=(OSError, TimeoutError, ConnectionError, asyncio.TimeoutError),
+            )
+            _august_circuit_breaker.record_success()
+            return result
+        except Exception:
+            _august_circuit_breaker.record_failure()
+            raise
 
     async def _ensure_authenticated(self) -> bool:
         """Ensure we have a valid authentication."""
@@ -52,8 +86,10 @@ class AugustLock(Lock):
             return
 
         try:
-            # yalexs is async-native
-            lock_detail = await self._api.async_get_lock_detail(self._lock_id)
+            # yalexs is async-native, use retry wrapper
+            lock_detail = await self._run_with_retry(
+                self._api.async_get_lock_detail, self._lock_id
+            )
 
             if lock_detail:
                 # Map August lock state to our LockState enum
@@ -78,6 +114,9 @@ class AugustLock(Lock):
             else:
                 self.status = DeviceStatus.OFFLINE
 
+        except CircuitBreakerOpen:
+            logger.warning(f"Circuit breaker open for August {self.id}")
+            self.status = DeviceStatus.OFFLINE
         except Exception as e:
             logger.error(f"Failed to refresh August lock {self.id}: {e}")
             self.status = DeviceStatus.OFFLINE
@@ -91,7 +130,7 @@ class AugustLock(Lock):
             raise RuntimeError(f"August lock {self.id} has no lock_id")
 
         try:
-            result = await self._api.async_lock(self._lock_id)
+            result = await self._run_with_retry(self._api.async_lock, self._lock_id)
             if result:
                 self.lock_state = LockState.LOCKED
                 self.status = DeviceStatus.ONLINE
@@ -99,6 +138,10 @@ class AugustLock(Lock):
             else:
                 raise RuntimeError(f"Failed to lock {self.id}")
 
+        except CircuitBreakerOpen:
+            logger.warning(f"Circuit breaker open for August {self.id}")
+            self.status = DeviceStatus.OFFLINE
+            raise RuntimeError(f"August lock {self.id} temporarily unavailable (circuit breaker open)")
         except Exception as e:
             logger.error(f"Failed to lock August lock {self.id}: {e}")
             raise
@@ -112,7 +155,7 @@ class AugustLock(Lock):
             raise RuntimeError(f"August lock {self.id} has no lock_id")
 
         try:
-            result = await self._api.async_unlock(self._lock_id)
+            result = await self._run_with_retry(self._api.async_unlock, self._lock_id)
             if result:
                 self.lock_state = LockState.UNLOCKED
                 self.status = DeviceStatus.ONLINE
@@ -120,9 +163,19 @@ class AugustLock(Lock):
             else:
                 raise RuntimeError(f"Failed to unlock {self.id}")
 
+        except CircuitBreakerOpen:
+            logger.warning(f"Circuit breaker open for August {self.id}")
+            self.status = DeviceStatus.OFFLINE
+            raise RuntimeError(f"August lock {self.id} temporarily unavailable (circuit breaker open)")
         except Exception as e:
             logger.error(f"Failed to unlock August lock {self.id}: {e}")
             raise
+
+    async def reconnect(self) -> None:
+        """Attempt to reconnect to August."""
+        # Reset circuit breaker to allow retry
+        _august_circuit_breaker.reset()
+        await self.refresh()
 
 
 async def create_august_lock(device_config: DeviceConfig, secrets: SecretsConfig) -> AugustLock:

@@ -1,6 +1,5 @@
 """Discovery and system status handlers."""
 
-import json
 from typing import Any
 
 from devices.manager import DeviceManager
@@ -22,7 +21,7 @@ async def handle_discover_tools(
     # Build tool lookup by name
     tool_lookup = {tool.name: tool for tool in all_tools}
 
-    result = {
+    result: dict[str, Any] = {
         "message": "Available home automation tools",
         "categories": [],
     }
@@ -42,7 +41,7 @@ async def handle_discover_tools(
 
                 params = []
                 for prop_name, prop_info in properties.items():
-                    param = {
+                    param: dict[str, Any] = {
                         "name": prop_name,
                         "type": prop_info.get("type", "any"),
                         "description": prop_info.get("description", ""),
@@ -112,19 +111,41 @@ async def handle_get_system_status(
         type_name = device.device_type.value
         by_type[type_name] = by_type.get(type_name, 0) + 1
 
-    # Get offline devices for troubleshooting
+    # Get health monitoring data
+    health_summary = device_manager.get_health_summary()
+    unhealthy_device_ids = device_manager.get_unhealthy_devices()
+
+    # Get offline and unhealthy devices for troubleshooting
     offline_devices = [
         {"id": d.id, "name": d.name, "type": d.device_type.value, "room": d.room_id}
         for d in devices
         if d.status == DeviceStatus.OFFLINE
     ]
 
+    # Get devices with health issues (may overlap with offline)
+    unhealthy_devices = []
+    for device_id in unhealthy_device_ids:
+        device = device_manager.get_device(device_id)
+        if device:
+            health = device_manager.get_device_health(device_id)
+            unhealthy_devices.append({
+                "id": device.id,
+                "name": device.name,
+                "type": device.device_type.value,
+                "consecutive_failures": health.consecutive_failures if health else 0,
+                "failure_rate": round(health.failure_rate, 3) if health else 0,
+            })
+
     # Build human-readable summary
-    if offline_count == 0:
+    unhealthy_count = len(unhealthy_device_ids)
+    if offline_count == 0 and unhealthy_count == 0:
         status_text = "All systems operational"
         status_code = "healthy"
-    elif offline_count == 1:
+    elif offline_count == 1 and unhealthy_count <= 1:
         status_text = f"1 device offline: {offline_devices[0]['name']}"
+        status_code = "degraded"
+    elif unhealthy_count > offline_count:
+        status_text = f"{unhealthy_count} devices experiencing issues"
         status_code = "degraded"
     else:
         status_text = f"{offline_count} devices offline"
@@ -136,7 +157,7 @@ async def handle_get_system_status(
     else:
         presence_text = "No rooms currently occupied"
 
-    status = {
+    status: dict[str, Any] = {
         "status": status_code,
         "status_text": status_text,
         "summary": {
@@ -144,27 +165,47 @@ async def handle_get_system_status(
             "online_devices": online_count,
             "offline_devices": offline_count,
             "unknown_devices": unknown_count,
+            "unhealthy_devices": unhealthy_count,
             "total_rooms": len(rooms),
             "occupied_rooms": len(occupied_rooms),
             "lights_on": lights_on,
         },
         "presence": presence_text,
         "devices_by_type": by_type,
+        "health": {
+            "total_monitored": health_summary.get("total_devices", 0),
+            "healthy": health_summary.get("healthy_devices", 0),
+            "unhealthy": health_summary.get("unhealthy_devices", 0),
+        },
     }
 
+    # Add issues section if there are problems
+    issues: dict[str, Any] = {}
     if offline_devices:
-        status["issues"] = {
-            "offline_devices": offline_devices,
-            "recommendation": (
-                "Check device connectivity and power. "
-                "Use 'get_device_state' with device_id to attempt refresh."
-            ),
-        }
+        issues["offline_devices"] = offline_devices
+    if unhealthy_devices:
+        # Only include unhealthy devices not already in offline list
+        offline_ids = {d["id"] for d in offline_devices}
+        additional_unhealthy = [d for d in unhealthy_devices if d["id"] not in offline_ids]
+        if additional_unhealthy:
+            issues["unstable_devices"] = additional_unhealthy
+
+    if issues:
+        issues["recommendation"] = (
+            "Check device connectivity and power. "
+            "Use 'get_device_state' with device_id to attempt refresh. "
+            "Devices with high failure rates may need troubleshooting."
+        )
+        status["issues"] = issues
 
     # Add suggested next actions based on context
     suggestions = []
     if offline_count > 0:
         suggestions.append(f"Check offline devices: {', '.join(d['id'] for d in offline_devices)}")
+    if unhealthy_count > offline_count:
+        additional_ids = [d["id"] for d in unhealthy_devices if d["id"] not in {o["id"] for o in offline_devices}]
+        if additional_ids:
+            suggestions.append(f"Monitor unstable devices: {', '.join(additional_ids)}")
     if lights_on > 0 and not occupied_rooms:
         suggestions.append("Lights are on but no rooms occupied - consider turning them off")
     if suggestions:
