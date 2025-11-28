@@ -8,8 +8,16 @@ from typing import Any
 from config import DeviceConfig, SecretsConfig, get_device_secret
 from models.base import DeviceStatus, DeviceType
 from models.plug import Plug
+from utils.retry import CircuitBreaker, CircuitBreakerOpen, retry_async
 
 logger = logging.getLogger(__name__)
+
+# Circuit breaker for Tuya LAN operations (shared across all Tuya devices)
+_tuya_circuit_breaker = CircuitBreaker(
+    failure_threshold=5,
+    recovery_timeout=30.0,
+    half_open_max_calls=2,
+)
 
 
 @dataclass
@@ -22,9 +30,30 @@ class TuyaPlug(Plug):
     _local_key: str | None = None
     _ip: str | None = None
 
-    async def _run_sync(self, func: Any, *args: Any) -> Any:
-        """Run a synchronous Tuya function in a thread."""
-        return await asyncio.to_thread(func, *args)
+    async def _run_with_retry(self, func: Any, *args: Any) -> Any:
+        """Run a Tuya function with retry and circuit breaker.
+
+        Uses retry for transient network errors and circuit breaker
+        to prevent hammering an unresponsive device.
+        """
+        if _tuya_circuit_breaker.is_open:
+            raise CircuitBreakerOpen("Tuya circuit breaker is open")
+
+        try:
+            result = await retry_async(
+                asyncio.to_thread,
+                func,
+                *args,
+                max_attempts=3,
+                initial_delay=0.5,
+                max_delay=5.0,
+                retryable_exceptions=(OSError, TimeoutError, ConnectionError),
+            )
+            _tuya_circuit_breaker.record_success()
+            return result
+        except Exception:
+            _tuya_circuit_breaker.record_failure()
+            raise
 
     async def refresh(self) -> None:
         """Fetch current state from the Tuya plug."""
@@ -33,13 +62,16 @@ class TuyaPlug(Plug):
             return
 
         try:
-            status = await self._run_sync(self._tuya_device.status)
+            status = await self._run_with_retry(self._tuya_device.status)
             if status and "dps" in status:
                 self.is_on = status["dps"].get("1", False)
                 power = status["dps"].get("19")
                 if power is not None:
                     self.power_watts = float(power) / 10.0
             self.status = DeviceStatus.ONLINE
+        except CircuitBreakerOpen:
+            logger.warning(f"Circuit breaker open for Tuya {self.id}")
+            self.status = DeviceStatus.OFFLINE
         except Exception as e:
             logger.error(f"Failed to refresh Tuya plug {self.id}: {e}")
             self.status = DeviceStatus.OFFLINE
@@ -51,15 +83,25 @@ class TuyaPlug(Plug):
 
         try:
             if on:
-                await self._run_sync(self._tuya_device.turn_on)
+                await self._run_with_retry(self._tuya_device.turn_on)
             else:
-                await self._run_sync(self._tuya_device.turn_off)
+                await self._run_with_retry(self._tuya_device.turn_off)
             self.is_on = on
             self.status = DeviceStatus.ONLINE
+        except CircuitBreakerOpen:
+            logger.warning(f"Circuit breaker open for Tuya {self.id}")
+            self.status = DeviceStatus.OFFLINE
+            raise RuntimeError(f"Tuya plug {self.id} temporarily unavailable (circuit breaker open)")
         except Exception as e:
             logger.error(f"Failed to set power for Tuya plug {self.id}: {e}")
             self.status = DeviceStatus.OFFLINE
             raise
+
+    async def reconnect(self) -> None:
+        """Attempt to reconnect to Tuya device."""
+        # Reset circuit breaker to allow retry
+        _tuya_circuit_breaker.reset()
+        await self.refresh()
 
 
 async def create_tuya_plug(device_config: DeviceConfig, secrets: SecretsConfig) -> TuyaPlug:

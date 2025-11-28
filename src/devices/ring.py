@@ -14,8 +14,16 @@ from typing import Any
 from config import DeviceConfig, SecretsConfig
 from models.base import DeviceStatus, DeviceType
 from models.camera import Camera
+from utils.retry import CircuitBreaker, CircuitBreakerOpen, retry_async
 
 logger = logging.getLogger(__name__)
+
+# Circuit breaker for Ring API operations (shared across all Ring devices)
+_ring_circuit_breaker = CircuitBreaker(
+    failure_threshold=5,
+    recovery_timeout=60.0,
+    half_open_max_calls=2,
+)
 
 # Token cache file location
 TOKEN_CACHE_PATH = Path.home() / ".cache" / "burrow" / "ring_token.json"
@@ -34,6 +42,31 @@ class RingCamera(Camera):
     firmware_version: str | None = None
     wifi_signal_strength: int | None = None
 
+    async def _run_with_retry(self, func: Any, *args: Any) -> Any:
+        """Run a Ring API function with retry and circuit breaker.
+
+        Uses retry for transient network errors and circuit breaker
+        to prevent hammering an unresponsive service.
+        """
+        if _ring_circuit_breaker.is_open:
+            raise CircuitBreakerOpen("Ring circuit breaker is open")
+
+        try:
+            result = await retry_async(
+                asyncio.to_thread,
+                func,
+                *args,
+                max_attempts=3,
+                initial_delay=1.0,
+                max_delay=10.0,
+                retryable_exceptions=(OSError, TimeoutError, ConnectionError),
+            )
+            _ring_circuit_breaker.record_success()
+            return result
+        except Exception:
+            _ring_circuit_breaker.record_failure()
+            raise
+
     async def refresh(self) -> None:
         """Fetch current state from Ring cloud."""
         if not self._device:
@@ -41,11 +74,11 @@ class RingCamera(Camera):
             return
 
         try:
-            # ring-doorbell is synchronous, run in thread
-            await asyncio.to_thread(self._device.update)
+            # ring-doorbell is synchronous, run in thread with retry
+            await self._run_with_retry(self._device.update)
 
             # Get device health info
-            health = await asyncio.to_thread(self._device.update_health_data)
+            health = await self._run_with_retry(self._device.update_health_data)
 
             # Update battery if available (doorbells and some cameras)
             if hasattr(self._device, "battery_life"):
@@ -61,7 +94,7 @@ class RingCamera(Camera):
 
             # Get last motion event
             try:
-                history = await asyncio.to_thread(
+                history = await self._run_with_retry(
                     self._device.history, limit=1, kind="motion"
                 )
                 if history:
@@ -76,7 +109,7 @@ class RingCamera(Camera):
 
             # Get last ding event (for doorbells)
             try:
-                history = await asyncio.to_thread(
+                history = await self._run_with_retry(
                     self._device.history, limit=1, kind="ding"
                 )
                 if history:
@@ -94,6 +127,9 @@ class RingCamera(Camera):
                 f"last_motion={self.last_motion}"
             )
 
+        except CircuitBreakerOpen:
+            logger.warning(f"Circuit breaker open for Ring {self.id}")
+            self.status = DeviceStatus.OFFLINE
         except Exception as e:
             logger.error(f"Failed to refresh Ring camera {self.id}: {e}")
             self.status = DeviceStatus.OFFLINE
@@ -108,15 +144,18 @@ class RingCamera(Camera):
 
         try:
             # Request a new snapshot
-            await asyncio.to_thread(self._device.get_snapshot)
+            await self._run_with_retry(self._device.get_snapshot)
 
             # Wait a moment for it to be ready
             await asyncio.sleep(2)
 
             # Get the snapshot URL
-            snapshot = await asyncio.to_thread(self._device.recording_url, None)
+            snapshot = await self._run_with_retry(self._device.recording_url, None)
             return snapshot
 
+        except CircuitBreakerOpen:
+            logger.warning(f"Circuit breaker open for Ring {self.id}")
+            return None
         except Exception as e:
             logger.error(f"Failed to get snapshot for {self.id}: {e}")
             return None
@@ -130,15 +169,18 @@ class RingCamera(Camera):
             return None
 
         try:
-            history = await asyncio.to_thread(self._device.history, limit=1)
+            history = await self._run_with_retry(self._device.history, limit=1)
             if history:
                 event = history[0]
-                url = await asyncio.to_thread(
+                url = await self._run_with_retry(
                     self._device.recording_url, event["id"]
                 )
                 return url
             return None
 
+        except CircuitBreakerOpen:
+            logger.warning(f"Circuit breaker open for Ring {self.id}")
+            return None
         except Exception as e:
             logger.error(f"Failed to get video URL for {self.id}: {e}")
             return None
@@ -153,6 +195,12 @@ class RingCamera(Camera):
             "firmware_version": self.firmware_version,
         })
         return state
+
+    async def reconnect(self) -> None:
+        """Attempt to reconnect to Ring."""
+        # Reset circuit breaker to allow retry
+        _ring_circuit_breaker.reset()
+        await self.refresh()
 
 
 def _token_updated_callback(token: dict) -> None:

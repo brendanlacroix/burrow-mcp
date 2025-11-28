@@ -180,8 +180,11 @@ class HealthMonitor:
             logger.error(f"Reconnection failed for {device_id}: {e}")
             return False
 
-    async def check_all(self) -> dict[str, bool]:
-        """Check health of all registered devices.
+    async def check_all(self, timeout: float = 30.0) -> dict[str, bool]:
+        """Check health of all registered devices with timeout protection.
+
+        Args:
+            timeout: Maximum time to wait for all checks (default 30s)
 
         Returns:
             Dict mapping device_id to health status
@@ -193,7 +196,18 @@ class HealthMonitor:
         for device_id in device_ids:
             tasks.append(self.check_device(device_id))
 
-        task_results = await asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            async with asyncio.timeout(timeout):
+                task_results = await asyncio.gather(*tasks, return_exceptions=True)
+        except asyncio.TimeoutError:
+            logger.error(f"check_all timed out after {timeout}s")
+            # Mark all devices as unhealthy on timeout
+            for device_id in device_ids:
+                results[device_id] = False
+                health = self._device_health.get(device_id)
+                if health:
+                    health.record_failure()
+            return results
 
         for device_id, result in zip(device_ids, task_results):
             if isinstance(result, Exception):

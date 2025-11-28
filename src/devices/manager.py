@@ -9,6 +9,7 @@ from config import BurrowConfig, DeviceConfig, SecretsConfig
 from models import Device, DeviceStatus, DeviceType, Light, Lock, Plug, Vacuum
 from models.room import Room
 from persistence import StateStore, get_store
+from utils.health import DeviceHealth, HealthMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ class DeviceManager:
         config: BurrowConfig,
         secrets: SecretsConfig,
         db_path: Path | str | None = None,
+        health_check_interval: float = 60.0,
     ):
         self.config = config
         self.secrets = secrets
@@ -29,6 +31,19 @@ class DeviceManager:
         self._device_factories: dict[str, Any] = {}
         self._db_path = db_path
         self._store: StateStore | None = None
+
+        # Initialize health monitor
+        self._health_monitor = HealthMonitor(
+            check_interval=health_check_interval,
+            unhealthy_threshold=3,
+            reconnect_delay=30.0,
+        )
+        self._health_monitor_started = False
+
+    @property
+    def health_monitor(self) -> HealthMonitor:
+        """Get the health monitor instance."""
+        return self._health_monitor
 
     def register_device_factory(self, device_type: str, factory: Any) -> None:
         """Register a factory function for creating devices of a given type.
@@ -63,8 +78,51 @@ class DeviceManager:
         for device_config in self.config.devices:
             await self._create_device(device_config)
 
+        # Start health monitoring after all devices are created
+        await self.start_health_monitoring()
+
+    async def start_health_monitoring(self) -> None:
+        """Start the health monitoring background task."""
+        if self._health_monitor_started:
+            return
+
+        # Register all devices with the health monitor
+        for device_id, device in self._devices.items():
+            self._health_monitor.register_device(
+                device_id=device_id,
+                check_func=device.refresh,
+                reconnect_func=getattr(device, "reconnect", None),
+            )
+            logger.debug(f"Registered device {device_id} with health monitor")
+
+        await self._health_monitor.start()
+        self._health_monitor_started = True
+        logger.info(
+            f"Health monitoring started for {len(self._devices)} devices "
+            f"(check interval: {self._health_monitor.check_interval}s)"
+        )
+
+    async def stop_health_monitoring(self) -> None:
+        """Stop the health monitoring background task."""
+        if self._health_monitor_started:
+            await self._health_monitor.stop()
+            self._health_monitor_started = False
+            logger.info("Health monitoring stopped")
+
     async def shutdown(self) -> None:
-        """Gracefully shutdown, persisting state."""
+        """Gracefully shutdown, persisting state and closing resources."""
+        # Stop health monitoring
+        await self.stop_health_monitoring()
+
+        # Close device connections
+        for device in self._devices.values():
+            if hasattr(device, "close"):
+                try:
+                    await device.close()
+                    logger.debug(f"Closed device connection: {device.id}")
+                except Exception as e:
+                    logger.warning(f"Error closing device {device.id}: {e}")
+
         # Save all device states
         if self._store:
             for device in self._devices.values():
@@ -101,17 +159,37 @@ class DeviceManager:
             logger.error(f"Failed to create device {device_config.id}: {e}")
             return None
 
-    async def refresh_all(self) -> None:
-        """Refresh state of all devices."""
+    async def refresh_all(self, timeout: float = 30.0) -> None:
+        """Refresh state of all devices with timeout protection.
+
+        Args:
+            timeout: Maximum time to wait for all refreshes (default 30s)
+        """
         tasks = [device.refresh() for device in self._devices.values()]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            async with asyncio.timeout(timeout):
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+        except asyncio.TimeoutError:
+            logger.error(f"refresh_all timed out after {timeout}s")
+            # Mark all devices as potentially offline on timeout
+            for device in self._devices.values():
+                device.status = DeviceStatus.OFFLINE
+            return
         for device, result in zip(self._devices.values(), results):
             if isinstance(result, Exception):
                 logger.error(f"Failed to refresh {device.id}: {result}")
                 device.status = DeviceStatus.OFFLINE
+                # Record failure in health monitor
+                health = self._health_monitor.get_device_health(device.id)
+                if health:
+                    health.record_failure()
             else:
                 # Persist updated state
                 await self._persist_device_state(device)
+                # Record success in health monitor
+                health = self._health_monitor.get_device_health(device.id)
+                if health:
+                    health.record_success()
 
     async def refresh_device(self, device_id: str) -> bool:
         """Refresh state of a single device."""
@@ -121,10 +199,18 @@ class DeviceManager:
         try:
             await device.refresh()
             await self._persist_device_state(device)
+            # Record success in health monitor
+            health = self._health_monitor.get_device_health(device_id)
+            if health:
+                health.record_success()
             return True
         except Exception as e:
             logger.error(f"Failed to refresh {device_id}: {e}")
             device.status = DeviceStatus.OFFLINE
+            # Record failure in health monitor
+            health = self._health_monitor.get_device_health(device_id)
+            if health:
+                health.record_failure()
             return False
 
     async def _persist_device_state(self, device: Device) -> None:
@@ -159,6 +245,23 @@ class DeviceManager:
             if self._store:
                 await self._store.save_room_state(room_id, occupied)
                 await self._store.record_presence_event(room_id, occupied, confidence)
+
+    # Health monitoring getters
+    def get_device_health(self, device_id: str) -> DeviceHealth | None:
+        """Get health status for a specific device."""
+        return self._health_monitor.get_device_health(device_id)
+
+    def get_all_health(self) -> dict[str, DeviceHealth]:
+        """Get health status for all devices."""
+        return self._health_monitor.get_all_health()
+
+    def get_unhealthy_devices(self) -> list[str]:
+        """Get list of unhealthy device IDs."""
+        return self._health_monitor.get_unhealthy_devices()
+
+    def get_health_summary(self) -> dict[str, Any]:
+        """Get a summary of all device health."""
+        return self._health_monitor.get_summary()
 
     # Device getters
     def get_device(self, device_id: str) -> Device | None:
@@ -258,8 +361,8 @@ class DeviceManager:
 
     # Device state as dicts for MCP responses
     def device_to_response(self, device: Device) -> dict[str, Any]:
-        """Convert a device to a response dict."""
-        return {
+        """Convert a device to a response dict with health info."""
+        response = {
             "id": device.id,
             "name": device.name,
             "type": device.device_type.value,
@@ -267,6 +370,19 @@ class DeviceManager:
             "room_id": device.room_id,
             "state": device.to_state_dict(),
         }
+
+        # Add health info if available
+        health = self._health_monitor.get_device_health(device.id)
+        if health:
+            response["health"] = {
+                "is_healthy": health.is_healthy,
+                "consecutive_failures": health.consecutive_failures,
+                "failure_rate": round(health.failure_rate, 3),
+            }
+            if health.last_successful_contact:
+                response["health"]["last_success"] = health.last_successful_contact.isoformat()
+
+        return response
 
     def room_to_response(self, room: Room) -> dict[str, Any]:
         """Convert a room to a detailed response dict."""

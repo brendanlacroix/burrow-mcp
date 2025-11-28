@@ -1,5 +1,6 @@
 """MCP server implementation for Burrow home automation."""
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -16,14 +17,29 @@ from mcp_server.handlers import (
     PlugHandlers,
     QueryHandlers,
     SceneHandlers,
+    SchedulingHandlers,
     VacuumHandlers,
     handle_discover_tools,
     handle_get_system_status,
 )
+from mcp_server.handlers.audit_context import set_store as set_audit_context_store
+from mcp_server.handlers.schedule_context import set_store as set_schedule_context_store
 from mcp_server.tools import get_all_tools
+from persistence import StateStore
 from presence import PresenceManager
+from utils.errors import (
+    DEFAULT_HANDLER_TIMEOUT,
+    ErrorCategory,
+    ToolError,
+    classify_exception,
+    generate_request_id,
+    get_recovery_suggestion,
+)
 
 logger = logging.getLogger(__name__)
+
+# Timeout for tool handler execution
+TOOL_TIMEOUT = DEFAULT_HANDLER_TIMEOUT
 
 
 class BurrowMcpServer:
@@ -35,9 +51,11 @@ class BurrowMcpServer:
         secrets: SecretsConfig,
         device_manager: DeviceManager,
         presence_manager: PresenceManager | None = None,
+        store: StateStore | None = None,
     ):
         self.config = config
         self.device_manager = device_manager
+        self.store = store
 
         # Initialize handlers
         self.query = QueryHandlers(device_manager, presence_manager)
@@ -46,6 +64,16 @@ class BurrowMcpServer:
         self.locks = LockHandlers(device_manager)
         self.vacuum = VacuumHandlers(device_manager)
         self.scenes = SceneHandlers(config, device_manager)
+
+        # Initialize scheduling handlers if store is available
+        if store:
+            self.scheduling = SchedulingHandlers(device_manager, store)
+            # Enable schedule context checking for device handlers
+            set_schedule_context_store(store)
+            # Enable audit logging for device handlers
+            set_audit_context_store(store)
+        else:
+            self.scheduling = None
 
         # Set up MCP server
         self.server = Server("burrow")
@@ -60,12 +88,42 @@ class BurrowMcpServer:
 
         @self.server.call_tool()
         async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+            request_id = generate_request_id()
+            device_id = arguments.get("device_id")
+
+            logger.info(
+                f"[{request_id}] Tool call: {name} "
+                f"(device={device_id or 'N/A'})"
+            )
+
             try:
-                result = await self._handle_tool(name, arguments)
+                # Execute with timeout protection
+                async with asyncio.timeout(TOOL_TIMEOUT):
+                    result = await self._handle_tool(name, arguments)
+
+                # Add request_id to successful responses for tracing
+                if isinstance(result, dict) and "error" not in result:
+                    result["request_id"] = request_id
+
+                logger.info(f"[{request_id}] Tool {name} completed successfully")
                 return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+            except asyncio.TimeoutError:
+                logger.error(f"[{request_id}] Tool {name} timed out after {TOOL_TIMEOUT}s")
+                error = ToolError(
+                    category=ErrorCategory.TIMEOUT,
+                    message=f"Operation timed out after {TOOL_TIMEOUT} seconds",
+                    device_id=device_id,
+                    request_id=request_id,
+                    recovery=get_recovery_suggestion(ErrorCategory.TIMEOUT),
+                )
+                return [TextContent(type="text", text=json.dumps(error.to_dict(), indent=2))]
+
             except Exception as e:
-                logger.exception(f"Error handling tool {name}")
-                return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
+                logger.exception(f"[{request_id}] Error handling tool {name}: {e}")
+                error = classify_exception(e, device_id)
+                error.request_id = request_id
+                return [TextContent(type="text", text=json.dumps(error.to_dict(), indent=2))]
 
     async def _handle_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         """Route tool calls to appropriate handlers."""
@@ -123,6 +181,34 @@ class BurrowMcpServer:
         elif name == "activate_scene":
             return await self.scenes.activate_scene(args)
 
+        # Scheduling tools
+        elif name == "schedule_action":
+            if not self.scheduling:
+                return {"error": "Scheduling not available (store not initialized)"}
+            return await self.scheduling.schedule_action(args)
+        elif name == "list_scheduled_actions":
+            if not self.scheduling:
+                return {"error": "Scheduling not available (store not initialized)"}
+            return await self.scheduling.list_scheduled_actions(args)
+        elif name == "cancel_scheduled_action":
+            if not self.scheduling:
+                return {"error": "Scheduling not available (store not initialized)"}
+            return await self.scheduling.cancel_scheduled_action(args)
+        elif name == "modify_scheduled_action":
+            if not self.scheduling:
+                return {"error": "Scheduling not available (store not initialized)"}
+            return await self.scheduling.modify_scheduled_action(args)
+
+        # Audit tools
+        elif name == "get_device_history":
+            if not self.scheduling:
+                return {"error": "Audit not available (store not initialized)"}
+            return await self.scheduling.get_device_history(args)
+        elif name == "get_audit_log":
+            if not self.scheduling:
+                return {"error": "Audit not available (store not initialized)"}
+            return await self.scheduling.get_audit_log(args)
+
         return {"error": f"Unknown tool: {name}"}
 
     async def run(self) -> None:
@@ -138,6 +224,7 @@ def create_server(
     secrets: SecretsConfig,
     device_manager: DeviceManager,
     presence_manager: PresenceManager | None = None,
+    store: StateStore | None = None,
 ) -> BurrowMcpServer:
     """Create a new Burrow MCP server instance."""
-    return BurrowMcpServer(config, secrets, device_manager, presence_manager)
+    return BurrowMcpServer(config, secrets, device_manager, presence_manager, store)
