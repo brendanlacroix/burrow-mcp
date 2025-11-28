@@ -225,3 +225,39 @@ async def device_manager(
 
     await manager.initialize()
     return manager
+
+
+@pytest.fixture
+async def device_manager_with_vacuum(
+    sample_secrets: SecretsConfig,
+    tmp_path: Path,
+) -> DeviceManager:
+    """Create a device manager with a vacuum for testing vacuum handlers."""
+    config = BurrowConfig(
+        rooms=[
+            RoomConfig(id="living_room", name="Living Room", floor=1),
+        ],
+        devices=[
+            DeviceConfig(
+                id="vacuum_1",
+                name="Roomba",
+                type="roomba",
+                room=None,
+            ),
+        ],
+        scenes=[],
+    )
+    db_path = tmp_path / "test_vacuum_state.db"
+    manager = DeviceManager(config, sample_secrets, db_path=db_path)
+
+    async def mock_vacuum_factory(config: DeviceConfig, secrets: SecretsConfig) -> TestVacuum:
+        vacuum = TestVacuum(id=config.id, name=config.name, room_id=config.room)
+        vacuum.status = DeviceStatus.ONLINE
+        vacuum.vacuum_state = VacuumState.DOCKED
+        vacuum.battery_percent = 100
+        return vacuum
+
+    manager.register_device_factory("roomba", mock_vacuum_factory)
+
+    await manager.initialize()
+    return manager

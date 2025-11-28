@@ -3,8 +3,10 @@
 import pytest
 
 from mcp_server.handlers.discovery import handle_discover_tools, handle_get_system_status
+from mcp_server.handlers.vacuum import VacuumHandlers
 from mcp_server.tools import TOOL_CATEGORIES
 from models.base import DeviceStatus
+from models.vacuum import VacuumState
 
 
 class TestDiscoveryHandlers:
@@ -224,3 +226,129 @@ class TestSceneHandlers:
         result = await handlers.activate_scene({"scene_id": "nonexistent"})
 
         assert "error" in result
+
+
+class TestVacuumHandlers:
+    """Tests for vacuum handlers."""
+
+    @pytest.mark.asyncio
+    async def test_start_vacuum_success(self, device_manager_with_vacuum):
+        """Test starting a vacuum successfully."""
+        handlers = VacuumHandlers(device_manager_with_vacuum)
+        result = await handlers.start_vacuum({"device_id": "vacuum_1"})
+
+        assert result["success"] is True
+        assert result["device_id"] == "vacuum_1"
+        assert result["vacuum_state"] == VacuumState.CLEANING.value
+
+    @pytest.mark.asyncio
+    async def test_start_vacuum_not_found(self, device_manager_with_vacuum):
+        """Test starting a vacuum that doesn't exist."""
+        handlers = VacuumHandlers(device_manager_with_vacuum)
+        result = await handlers.start_vacuum({"device_id": "nonexistent"})
+
+        assert "error" in result
+        assert result["error_category"] == "device_not_found"
+
+    @pytest.mark.asyncio
+    async def test_start_vacuum_offline(self, device_manager_with_vacuum):
+        """Test starting a vacuum that is offline."""
+        vacuum = device_manager_with_vacuum.get_vacuum("vacuum_1")
+        vacuum.status = DeviceStatus.OFFLINE
+
+        handlers = VacuumHandlers(device_manager_with_vacuum)
+        result = await handlers.start_vacuum({"device_id": "vacuum_1"})
+
+        assert "error" in result
+        assert result["error_category"] == "device_offline"
+
+    @pytest.mark.asyncio
+    async def test_stop_vacuum_success(self, device_manager_with_vacuum):
+        """Test stopping a vacuum successfully."""
+        # First start the vacuum
+        vacuum = device_manager_with_vacuum.get_vacuum("vacuum_1")
+        vacuum.vacuum_state = VacuumState.CLEANING
+
+        handlers = VacuumHandlers(device_manager_with_vacuum)
+        result = await handlers.stop_vacuum({"device_id": "vacuum_1"})
+
+        assert result["success"] is True
+        assert result["device_id"] == "vacuum_1"
+        assert result["vacuum_state"] == VacuumState.PAUSED.value
+
+    @pytest.mark.asyncio
+    async def test_stop_vacuum_not_found(self, device_manager_with_vacuum):
+        """Test stopping a vacuum that doesn't exist."""
+        handlers = VacuumHandlers(device_manager_with_vacuum)
+        result = await handlers.stop_vacuum({"device_id": "nonexistent"})
+
+        assert "error" in result
+        assert result["error_category"] == "device_not_found"
+
+    @pytest.mark.asyncio
+    async def test_stop_vacuum_offline(self, device_manager_with_vacuum):
+        """Test stopping a vacuum that is offline."""
+        vacuum = device_manager_with_vacuum.get_vacuum("vacuum_1")
+        vacuum.status = DeviceStatus.OFFLINE
+
+        handlers = VacuumHandlers(device_manager_with_vacuum)
+        result = await handlers.stop_vacuum({"device_id": "vacuum_1"})
+
+        assert "error" in result
+        assert result["error_category"] == "device_offline"
+
+    @pytest.mark.asyncio
+    async def test_dock_vacuum_success(self, device_manager_with_vacuum):
+        """Test docking a vacuum successfully."""
+        # First start the vacuum
+        vacuum = device_manager_with_vacuum.get_vacuum("vacuum_1")
+        vacuum.vacuum_state = VacuumState.CLEANING
+
+        handlers = VacuumHandlers(device_manager_with_vacuum)
+        result = await handlers.dock_vacuum({"device_id": "vacuum_1"})
+
+        assert result["success"] is True
+        assert result["device_id"] == "vacuum_1"
+        assert result["vacuum_state"] == VacuumState.RETURNING.value
+
+    @pytest.mark.asyncio
+    async def test_dock_vacuum_not_found(self, device_manager_with_vacuum):
+        """Test docking a vacuum that doesn't exist."""
+        handlers = VacuumHandlers(device_manager_with_vacuum)
+        result = await handlers.dock_vacuum({"device_id": "nonexistent"})
+
+        assert "error" in result
+        assert result["error_category"] == "device_not_found"
+
+    @pytest.mark.asyncio
+    async def test_dock_vacuum_offline(self, device_manager_with_vacuum):
+        """Test docking a vacuum that is offline."""
+        vacuum = device_manager_with_vacuum.get_vacuum("vacuum_1")
+        vacuum.status = DeviceStatus.OFFLINE
+
+        handlers = VacuumHandlers(device_manager_with_vacuum)
+        result = await handlers.dock_vacuum({"device_id": "vacuum_1"})
+
+        assert "error" in result
+        assert result["error_category"] == "device_offline"
+
+    @pytest.mark.asyncio
+    async def test_vacuum_state_transitions(self, device_manager_with_vacuum):
+        """Test that vacuum state transitions correctly through operations."""
+        handlers = VacuumHandlers(device_manager_with_vacuum)
+        vacuum = device_manager_with_vacuum.get_vacuum("vacuum_1")
+
+        # Initial state is DOCKED
+        assert vacuum.vacuum_state == VacuumState.DOCKED
+
+        # Start -> CLEANING
+        result = await handlers.start_vacuum({"device_id": "vacuum_1"})
+        assert result["vacuum_state"] == VacuumState.CLEANING.value
+
+        # Stop -> PAUSED
+        result = await handlers.stop_vacuum({"device_id": "vacuum_1"})
+        assert result["vacuum_state"] == VacuumState.PAUSED.value
+
+        # Dock -> RETURNING
+        result = await handlers.dock_vacuum({"device_id": "vacuum_1"})
+        assert result["vacuum_state"] == VacuumState.RETURNING.value
