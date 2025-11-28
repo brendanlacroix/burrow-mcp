@@ -6,6 +6,7 @@ from typing import Any
 
 from devices.manager import DeviceManager
 from models import DeviceStatus
+from mcp_server.handlers.audit_context import log_device_action
 from mcp_server.handlers.schedule_context import add_schedule_context
 from utils.errors import (
     DEFAULT_DEVICE_TIMEOUT,
@@ -55,12 +56,23 @@ class PlugHandlers:
             return error.to_dict()
 
         try:
+            previous_state = plug.to_state_dict()
+
             await execute_with_timeout(
                 plug.set_power(on),
                 timeout=DEFAULT_DEVICE_TIMEOUT,
                 device_id=device_id,
                 operation="set_power",
             )
+
+            await log_device_action(
+                device_id=device_id,
+                action="set_power",
+                previous_state=previous_state,
+                new_state=plug.to_state_dict(),
+                metadata={"on": on},
+            )
+
             response = {
                 "success": True,
                 "device_id": device_id,

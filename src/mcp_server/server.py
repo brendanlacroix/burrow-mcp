@@ -22,6 +22,7 @@ from mcp_server.handlers import (
     handle_discover_tools,
     handle_get_system_status,
 )
+from mcp_server.handlers.audit_context import set_store as set_audit_context_store
 from mcp_server.handlers.schedule_context import set_store as set_schedule_context_store
 from mcp_server.tools import get_all_tools
 from persistence import StateStore
@@ -69,6 +70,8 @@ class BurrowMcpServer:
             self.scheduling = SchedulingHandlers(device_manager, store)
             # Enable schedule context checking for device handlers
             set_schedule_context_store(store)
+            # Enable audit logging for device handlers
+            set_audit_context_store(store)
         else:
             self.scheduling = None
 

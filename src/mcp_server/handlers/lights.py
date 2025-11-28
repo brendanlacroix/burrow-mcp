@@ -6,6 +6,7 @@ from typing import Any
 
 from devices.manager import DeviceManager
 from models import DeviceStatus
+from mcp_server.handlers.audit_context import log_device_action
 from mcp_server.handlers.schedule_context import add_schedule_context
 from utils.errors import (
     DEFAULT_DEVICE_TIMEOUT,
@@ -57,12 +58,25 @@ class LightHandlers:
             return error.to_dict()
 
         try:
+            # Capture state before operation
+            previous_state = light.to_state_dict()
+
             await execute_with_timeout(
                 light.set_power(on),
                 timeout=DEFAULT_DEVICE_TIMEOUT,
                 device_id=device_id,
                 operation="set_power",
             )
+
+            # Log audit event
+            await log_device_action(
+                device_id=device_id,
+                action="set_power",
+                previous_state=previous_state,
+                new_state=light.to_state_dict(),
+                metadata={"on": on},
+            )
+
             response = {
                 "success": True,
                 "device_id": device_id,
@@ -110,12 +124,23 @@ class LightHandlers:
             ).to_dict()
 
         try:
+            previous_state = light.to_state_dict()
+
             await execute_with_timeout(
                 light.set_brightness(brightness),
                 timeout=DEFAULT_DEVICE_TIMEOUT,
                 device_id=device_id,
                 operation="set_brightness",
             )
+
+            await log_device_action(
+                device_id=device_id,
+                action="set_brightness",
+                previous_state=previous_state,
+                new_state=light.to_state_dict(),
+                metadata={"brightness": brightness},
+            )
+
             response = {
                 "success": True,
                 "device_id": device_id,
@@ -162,12 +187,23 @@ class LightHandlers:
             ).to_dict()
 
         try:
+            previous_state = light.to_state_dict()
+
             await execute_with_timeout(
                 light.set_color(color),
                 timeout=DEFAULT_DEVICE_TIMEOUT,
                 device_id=device_id,
                 operation="set_color",
             )
+
+            await log_device_action(
+                device_id=device_id,
+                action="set_color",
+                previous_state=previous_state,
+                new_state=light.to_state_dict(),
+                metadata={"color": color},
+            )
+
             response = {
                 "success": True,
                 "device_id": device_id,
@@ -215,12 +251,23 @@ class LightHandlers:
             ).to_dict()
 
         try:
+            previous_state = light.to_state_dict()
+
             await execute_with_timeout(
                 light.set_color_temp(kelvin),
                 timeout=DEFAULT_DEVICE_TIMEOUT,
                 device_id=device_id,
                 operation="set_color_temp",
             )
+
+            await log_device_action(
+                device_id=device_id,
+                action="set_color_temp",
+                previous_state=previous_state,
+                new_state=light.to_state_dict(),
+                metadata={"kelvin": kelvin},
+            )
+
             response = {
                 "success": True,
                 "device_id": device_id,

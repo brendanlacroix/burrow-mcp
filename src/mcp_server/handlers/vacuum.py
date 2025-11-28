@@ -6,6 +6,7 @@ from typing import Any
 
 from devices.manager import DeviceManager
 from models import DeviceStatus
+from mcp_server.handlers.audit_context import log_device_action
 from mcp_server.handlers.schedule_context import add_schedule_context
 from utils.errors import (
     DEFAULT_DEVICE_TIMEOUT,
@@ -54,12 +55,22 @@ class VacuumHandlers:
             return error.to_dict()
 
         try:
+            previous_state = vacuum.to_state_dict()
+
             await execute_with_timeout(
                 vacuum.start(),
                 timeout=DEFAULT_DEVICE_TIMEOUT,
                 device_id=device_id,
                 operation="start",
             )
+
+            await log_device_action(
+                device_id=device_id,
+                action="start_vacuum",
+                previous_state=previous_state,
+                new_state=vacuum.to_state_dict(),
+            )
+
             response = {
                 "success": True,
                 "device_id": device_id,
@@ -97,12 +108,22 @@ class VacuumHandlers:
             return error.to_dict()
 
         try:
+            previous_state = vacuum.to_state_dict()
+
             await execute_with_timeout(
                 vacuum.stop(),
                 timeout=DEFAULT_DEVICE_TIMEOUT,
                 device_id=device_id,
                 operation="stop",
             )
+
+            await log_device_action(
+                device_id=device_id,
+                action="stop_vacuum",
+                previous_state=previous_state,
+                new_state=vacuum.to_state_dict(),
+            )
+
             response = {
                 "success": True,
                 "device_id": device_id,
@@ -140,12 +161,22 @@ class VacuumHandlers:
             return error.to_dict()
 
         try:
+            previous_state = vacuum.to_state_dict()
+
             await execute_with_timeout(
                 vacuum.dock(),
                 timeout=DEFAULT_DEVICE_TIMEOUT,
                 device_id=device_id,
                 operation="dock",
             )
+
+            await log_device_action(
+                device_id=device_id,
+                action="dock_vacuum",
+                previous_state=previous_state,
+                new_state=vacuum.to_state_dict(),
+            )
+
             response = {
                 "success": True,
                 "device_id": device_id,

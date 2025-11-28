@@ -6,6 +6,7 @@ from typing import Any
 
 from devices.manager import DeviceManager
 from models import DeviceStatus
+from mcp_server.handlers.audit_context import log_device_action
 from mcp_server.handlers.schedule_context import add_schedule_context
 from utils.errors import (
     DEFAULT_DEVICE_TIMEOUT,
@@ -54,12 +55,22 @@ class LockHandlers:
             return error.to_dict()
 
         try:
+            previous_state = lock.to_state_dict()
+
             await execute_with_timeout(
                 lock.lock(),
                 timeout=DEFAULT_DEVICE_TIMEOUT,
                 device_id=device_id,
                 operation="lock",
             )
+
+            await log_device_action(
+                device_id=device_id,
+                action="lock",
+                previous_state=previous_state,
+                new_state=lock.to_state_dict(),
+            )
+
             response = {
                 "success": True,
                 "device_id": device_id,
@@ -97,12 +108,22 @@ class LockHandlers:
             return error.to_dict()
 
         try:
+            previous_state = lock.to_state_dict()
+
             await execute_with_timeout(
                 lock.unlock(),
                 timeout=DEFAULT_DEVICE_TIMEOUT,
                 device_id=device_id,
                 operation="unlock",
             )
+
+            await log_device_action(
+                device_id=device_id,
+                action="unlock",
+                previous_state=previous_state,
+                new_state=lock.to_state_dict(),
+            )
+
             response = {
                 "success": True,
                 "device_id": device_id,
