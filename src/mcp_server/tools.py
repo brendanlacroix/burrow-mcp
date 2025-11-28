@@ -58,6 +58,19 @@ TOOL_CATEGORIES = {
         "tags": ["scenes", "automation", "presets", "goodnight", "movie"],
         "tools": ["list_scenes", "activate_scene"],
     },
+    "scheduling": {
+        "name": "Scheduling & Timers",
+        "description": "Tools for scheduling future actions and managing timers",
+        "tags": ["schedule", "timer", "delay", "recurring", "automation", "future", "later"],
+        "tools": ["schedule_action", "list_scheduled_actions", "cancel_scheduled_action",
+                  "modify_scheduled_action"],
+    },
+    "audit": {
+        "name": "Audit & History",
+        "description": "Tools for viewing device history and audit logs",
+        "tags": ["audit", "history", "log", "events", "track"],
+        "tools": ["get_device_history", "get_audit_log"],
+    },
 }
 
 
@@ -543,6 +556,224 @@ def get_scene_tools() -> list[Tool]:
     ]
 
 
+def get_scheduling_tools() -> list[Tool]:
+    """Get scheduling and timer tool definitions."""
+    return [
+        Tool(
+            name="schedule_action",
+            description=(
+                "Schedule a device action for later execution. "
+                "Supports one-time delays ('turn off in 30 minutes') and recurring schedules "
+                "('turn on daily at 7am'). The action will execute even after this conversation ends."
+            ),
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Target device ID",
+                        },
+                        "action": {
+                            "type": "string",
+                            "enum": [
+                                "turn_on", "turn_off", "set_brightness", "set_color",
+                                "set_temperature", "lock", "unlock",
+                                "start_vacuum", "stop_vacuum", "dock_vacuum",
+                            ],
+                            "description": "Action to perform",
+                        },
+                        "delay_minutes": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Execute after N minutes (use this OR at_time)",
+                        },
+                        "at_time": {
+                            "type": "string",
+                            "description": "Execute at specific time (HH:MM or ISO format)",
+                        },
+                        "action_params": {
+                            "type": "object",
+                            "description": "Parameters for the action (e.g., {brightness: 50})",
+                        },
+                        "recurrence": {
+                            "type": "object",
+                            "description": (
+                                "Recurrence pattern. Types: "
+                                "'daily' with 'time', "
+                                "'weekly' with 'days' and 'time', "
+                                "'interval' with 'minutes'"
+                            ),
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Human-readable description (auto-generated if omitted)",
+                        },
+                    },
+                    "required": ["device_id", "action"],
+                },
+                [
+                    {"device_id": "living_room_lamp", "action": "turn_off", "delay_minutes": 30},
+                    {"device_id": "bedroom_light", "action": "turn_on", "at_time": "07:00"},
+                    {
+                        "device_id": "office_light",
+                        "action": "turn_on",
+                        "at_time": "09:00",
+                        "recurrence": {"type": "weekly", "days": ["mon", "tue", "wed", "thu", "fri"], "time": "09:00"},
+                    },
+                    {
+                        "device_id": "porch_light",
+                        "action": "turn_on",
+                        "recurrence": {"type": "daily", "time": "18:00"},
+                    },
+                ],
+            ),
+        ),
+        Tool(
+            name="list_scheduled_actions",
+            description="List all pending scheduled actions. Shows what's queued to happen and when.",
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Filter by device (optional)",
+                        },
+                        "include_completed": {
+                            "type": "boolean",
+                            "description": "Include completed actions",
+                            "default": False,
+                        },
+                    },
+                },
+                [
+                    {},
+                    {"device_id": "living_room_lamp"},
+                ],
+            ),
+        ),
+        Tool(
+            name="cancel_scheduled_action",
+            description="Cancel a pending scheduled action. Use list_scheduled_actions to find the schedule_id.",
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "schedule_id": {
+                            "type": "string",
+                            "description": "ID of the schedule to cancel",
+                        },
+                    },
+                    "required": ["schedule_id"],
+                },
+                [
+                    {"schedule_id": "abc123"},
+                ],
+            ),
+        ),
+        Tool(
+            name="modify_scheduled_action",
+            description="Change the timing of a scheduled action. Can update execution time or recurrence pattern.",
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "schedule_id": {
+                            "type": "string",
+                            "description": "ID of the schedule to modify",
+                        },
+                        "delay_minutes": {
+                            "type": "integer",
+                            "description": "New delay from now",
+                        },
+                        "at_time": {
+                            "type": "string",
+                            "description": "New execution time (HH:MM or ISO format)",
+                        },
+                        "recurrence": {
+                            "type": "object",
+                            "description": "New recurrence pattern (null to remove recurrence)",
+                        },
+                    },
+                    "required": ["schedule_id"],
+                },
+                [
+                    {"schedule_id": "abc123", "delay_minutes": 60},
+                    {"schedule_id": "abc123", "at_time": "22:00"},
+                ],
+            ),
+        ),
+    ]
+
+
+def get_audit_tools() -> list[Tool]:
+    """Get audit and history tool definitions."""
+    return [
+        Tool(
+            name="get_device_history",
+            description=(
+                "Get the history of actions performed on a device. "
+                "Shows what happened, when, and whether it was user-initiated or scheduled."
+            ),
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Device to get history for",
+                        },
+                        "hours": {
+                            "type": "integer",
+                            "description": "Hours of history to retrieve",
+                            "default": 24,
+                        },
+                    },
+                    "required": ["device_id"],
+                },
+                [
+                    {"device_id": "living_room_lamp"},
+                    {"device_id": "front_door", "hours": 48},
+                ],
+            ),
+        ),
+        Tool(
+            name="get_audit_log",
+            description=(
+                "Get the system-wide audit log showing all actions and events. "
+                "Useful for understanding what happened in the house over time."
+            ),
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "hours": {
+                            "type": "integer",
+                            "description": "Hours of history to retrieve",
+                            "default": 24,
+                        },
+                        "event_type": {
+                            "type": "string",
+                            "description": "Filter by event type (e.g., 'device_changed', 'schedule_executed')",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum entries to return",
+                            "default": 100,
+                        },
+                    },
+                },
+                [
+                    {},
+                    {"hours": 12},
+                    {"event_type": "schedule_executed"},
+                ],
+            ),
+        ),
+    ]
+
+
 def get_all_tools() -> list[Tool]:
     """Get all tool definitions."""
     return (
@@ -553,6 +784,8 @@ def get_all_tools() -> list[Tool]:
         + get_lock_tools()
         + get_vacuum_tools()
         + get_scene_tools()
+        + get_scheduling_tools()
+        + get_audit_tools()
     )
 
 

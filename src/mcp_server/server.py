@@ -17,11 +17,13 @@ from mcp_server.handlers import (
     PlugHandlers,
     QueryHandlers,
     SceneHandlers,
+    SchedulingHandlers,
     VacuumHandlers,
     handle_discover_tools,
     handle_get_system_status,
 )
 from mcp_server.tools import get_all_tools
+from persistence import StateStore
 from presence import PresenceManager
 from utils.errors import (
     DEFAULT_HANDLER_TIMEOUT,
@@ -47,9 +49,11 @@ class BurrowMcpServer:
         secrets: SecretsConfig,
         device_manager: DeviceManager,
         presence_manager: PresenceManager | None = None,
+        store: StateStore | None = None,
     ):
         self.config = config
         self.device_manager = device_manager
+        self.store = store
 
         # Initialize handlers
         self.query = QueryHandlers(device_manager, presence_manager)
@@ -58,6 +62,12 @@ class BurrowMcpServer:
         self.locks = LockHandlers(device_manager)
         self.vacuum = VacuumHandlers(device_manager)
         self.scenes = SceneHandlers(config, device_manager)
+
+        # Initialize scheduling handlers if store is available
+        if store:
+            self.scheduling = SchedulingHandlers(device_manager, store)
+        else:
+            self.scheduling = None
 
         # Set up MCP server
         self.server = Server("burrow")
@@ -165,6 +175,34 @@ class BurrowMcpServer:
         elif name == "activate_scene":
             return await self.scenes.activate_scene(args)
 
+        # Scheduling tools
+        elif name == "schedule_action":
+            if not self.scheduling:
+                return {"error": "Scheduling not available (store not initialized)"}
+            return await self.scheduling.schedule_action(args)
+        elif name == "list_scheduled_actions":
+            if not self.scheduling:
+                return {"error": "Scheduling not available (store not initialized)"}
+            return await self.scheduling.list_scheduled_actions(args)
+        elif name == "cancel_scheduled_action":
+            if not self.scheduling:
+                return {"error": "Scheduling not available (store not initialized)"}
+            return await self.scheduling.cancel_scheduled_action(args)
+        elif name == "modify_scheduled_action":
+            if not self.scheduling:
+                return {"error": "Scheduling not available (store not initialized)"}
+            return await self.scheduling.modify_scheduled_action(args)
+
+        # Audit tools
+        elif name == "get_device_history":
+            if not self.scheduling:
+                return {"error": "Audit not available (store not initialized)"}
+            return await self.scheduling.get_device_history(args)
+        elif name == "get_audit_log":
+            if not self.scheduling:
+                return {"error": "Audit not available (store not initialized)"}
+            return await self.scheduling.get_audit_log(args)
+
         return {"error": f"Unknown tool: {name}"}
 
     async def run(self) -> None:
@@ -180,6 +218,7 @@ def create_server(
     secrets: SecretsConfig,
     device_manager: DeviceManager,
     presence_manager: PresenceManager | None = None,
+    store: StateStore | None = None,
 ) -> BurrowMcpServer:
     """Create a new Burrow MCP server instance."""
-    return BurrowMcpServer(config, secrets, device_manager, presence_manager)
+    return BurrowMcpServer(config, secrets, device_manager, presence_manager, store)
