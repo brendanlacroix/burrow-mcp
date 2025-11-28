@@ -67,7 +67,10 @@ class SecretsConfig(BaseModel):
 
     tuya: dict[str, dict[str, str]] = Field(default_factory=dict)
     august: dict[str, str] = Field(default_factory=dict)
-    roomba: dict[str, str] = Field(default_factory=dict)
+    # Per-device Roomba local credentials (blid, password per device_id)
+    roomba: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # iRobot cloud credentials for newer Roombas using Roomba Home app
+    roomba_cloud: dict[str, str] = Field(default_factory=dict)
     govee: dict[str, str] = Field(default_factory=dict)
     ring: dict[str, str] = Field(default_factory=dict)
     mqtt: dict[str, Any] = Field(default_factory=dict)

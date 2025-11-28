@@ -239,6 +239,10 @@ async def create_roomba_vacuum(
     - IP address of the Roomba
     - BLID (robot ID) - get using roombapy tools
     - Password - get using roombapy tools
+
+    Credentials can be specified:
+    1. Per-device in secrets.yaml under roomba.<device_id>.blid/password
+    2. In device config directly (not recommended for passwords)
     """
     try:
         from roombapy import Roomba
@@ -250,9 +254,22 @@ async def create_roomba_vacuum(
             room_id=device_config.room,
         )
 
+    # Get IP from device config
     ip = device_config.config.get("ip")
-    blid = secrets.roomba.get("blid") or device_config.config.get("blid")
-    password = secrets.roomba.get("password") or device_config.config.get("password")
+
+    # Get per-device credentials from secrets (preferred) or fall back to config
+    device_secrets = secrets.roomba.get(device_config.id, {})
+    blid = (
+        device_secrets.get("blid")
+        or device_config.config.get("blid")
+    )
+    password = (
+        device_secrets.get("password")
+        or device_config.config.get("password")
+    )
+    # IP can also come from secrets for convenience
+    if not ip:
+        ip = device_secrets.get("ip")
 
     vacuum = RoombaVacuum(
         id=device_config.id,
