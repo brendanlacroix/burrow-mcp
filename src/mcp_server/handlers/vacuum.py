@@ -6,6 +6,7 @@ from typing import Any
 
 from devices.manager import DeviceManager
 from models import DeviceStatus
+from mcp_server.handlers.schedule_context import add_schedule_context
 from utils.errors import (
     DEFAULT_DEVICE_TIMEOUT,
     DeviceTimeoutError,
@@ -59,12 +60,13 @@ class VacuumHandlers:
                 device_id=device_id,
                 operation="start",
             )
-            return {
+            response = {
                 "success": True,
                 "device_id": device_id,
                 "vacuum_state": vacuum.vacuum_state.value,
                 "device_status": vacuum.status.value,
             }
+            return await add_schedule_context(response, device_id)
         except (DeviceTimeoutError, asyncio.TimeoutError) as e:
             logger.error(f"Timeout starting vacuum {device_id}: {e}")
             return ToolError(
@@ -101,12 +103,13 @@ class VacuumHandlers:
                 device_id=device_id,
                 operation="stop",
             )
-            return {
+            response = {
                 "success": True,
                 "device_id": device_id,
                 "vacuum_state": vacuum.vacuum_state.value,
                 "device_status": vacuum.status.value,
             }
+            return await add_schedule_context(response, device_id)
         except (DeviceTimeoutError, asyncio.TimeoutError) as e:
             logger.error(f"Timeout stopping vacuum {device_id}: {e}")
             return ToolError(
@@ -143,12 +146,13 @@ class VacuumHandlers:
                 device_id=device_id,
                 operation="dock",
             )
-            return {
+            response = {
                 "success": True,
                 "device_id": device_id,
                 "vacuum_state": vacuum.vacuum_state.value,
                 "device_status": vacuum.status.value,
             }
+            return await add_schedule_context(response, device_id)
         except (DeviceTimeoutError, asyncio.TimeoutError) as e:
             logger.error(f"Timeout docking vacuum {device_id}: {e}")
             return ToolError(

@@ -6,6 +6,7 @@ from typing import Any
 
 from devices.manager import DeviceManager
 from models import DeviceStatus
+from mcp_server.handlers.schedule_context import add_schedule_context
 from utils.errors import (
     DEFAULT_DEVICE_TIMEOUT,
     DeviceTimeoutError,
@@ -59,12 +60,13 @@ class LockHandlers:
                 device_id=device_id,
                 operation="lock",
             )
-            return {
+            response = {
                 "success": True,
                 "device_id": device_id,
                 "lock_state": lock.lock_state.value,
                 "device_status": lock.status.value,
             }
+            return await add_schedule_context(response, device_id)
         except (DeviceTimeoutError, asyncio.TimeoutError) as e:
             logger.error(f"Timeout locking {device_id}: {e}")
             return ToolError(
@@ -101,12 +103,13 @@ class LockHandlers:
                 device_id=device_id,
                 operation="unlock",
             )
-            return {
+            response = {
                 "success": True,
                 "device_id": device_id,
                 "lock_state": lock.lock_state.value,
                 "device_status": lock.status.value,
             }
+            return await add_schedule_context(response, device_id)
         except (DeviceTimeoutError, asyncio.TimeoutError) as e:
             logger.error(f"Timeout unlocking {device_id}: {e}")
             return ToolError(

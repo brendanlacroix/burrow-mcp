@@ -6,6 +6,7 @@ from typing import Any
 
 from devices.manager import DeviceManager
 from models import DeviceStatus
+from mcp_server.handlers.schedule_context import add_schedule_context
 from utils.errors import (
     DEFAULT_DEVICE_TIMEOUT,
     DeviceOfflineError,
@@ -62,12 +63,13 @@ class LightHandlers:
                 device_id=device_id,
                 operation="set_power",
             )
-            return {
+            response = {
                 "success": True,
                 "device_id": device_id,
                 "is_on": light.is_on,
                 "device_status": light.status.value,
             }
+            return await add_schedule_context(response, device_id)
         except (DeviceTimeoutError, asyncio.TimeoutError) as e:
             logger.error(f"Timeout setting power for {device_id}: {e}")
             return ToolError(
@@ -114,12 +116,13 @@ class LightHandlers:
                 device_id=device_id,
                 operation="set_brightness",
             )
-            return {
+            response = {
                 "success": True,
                 "device_id": device_id,
                 "brightness": light.brightness,
                 "device_status": light.status.value,
             }
+            return await add_schedule_context(response, device_id)
         except (DeviceTimeoutError, asyncio.TimeoutError) as e:
             logger.error(f"Timeout setting brightness for {device_id}: {e}")
             return ToolError(
@@ -165,12 +168,13 @@ class LightHandlers:
                 device_id=device_id,
                 operation="set_color",
             )
-            return {
+            response = {
                 "success": True,
                 "device_id": device_id,
                 "color": light.color,
                 "device_status": light.status.value,
             }
+            return await add_schedule_context(response, device_id)
         except (DeviceTimeoutError, asyncio.TimeoutError) as e:
             logger.error(f"Timeout setting color for {device_id}: {e}")
             return ToolError(
@@ -217,12 +221,13 @@ class LightHandlers:
                 device_id=device_id,
                 operation="set_color_temp",
             )
-            return {
+            response = {
                 "success": True,
                 "device_id": device_id,
                 "color_temp": light.color_temp,
                 "device_status": light.status.value,
             }
+            return await add_schedule_context(response, device_id)
         except (DeviceTimeoutError, asyncio.TimeoutError) as e:
             logger.error(f"Timeout setting color temp for {device_id}: {e}")
             return ToolError(

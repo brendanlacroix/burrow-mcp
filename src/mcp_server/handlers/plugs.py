@@ -6,6 +6,7 @@ from typing import Any
 
 from devices.manager import DeviceManager
 from models import DeviceStatus
+from mcp_server.handlers.schedule_context import add_schedule_context
 from utils.errors import (
     DEFAULT_DEVICE_TIMEOUT,
     DeviceTimeoutError,
@@ -60,12 +61,13 @@ class PlugHandlers:
                 device_id=device_id,
                 operation="set_power",
             )
-            return {
+            response = {
                 "success": True,
                 "device_id": device_id,
                 "is_on": plug.is_on,
                 "device_status": plug.status.value,
             }
+            return await add_schedule_context(response, device_id)
         except (DeviceTimeoutError, asyncio.TimeoutError) as e:
             logger.error(f"Timeout setting power for plug {device_id}: {e}")
             return ToolError(
