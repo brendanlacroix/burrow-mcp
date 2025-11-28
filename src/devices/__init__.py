@@ -6,6 +6,7 @@ from devices.lifx import LifxLight, create_lifx_light
 from devices.manager import DeviceManager
 from devices.ring import RingCamera, create_ring_camera
 from devices.roomba import RoombaVacuum, create_roomba_vacuum
+from devices.roomba_cloud import RoombaCloudVacuum, create_roomba_cloud_vacuum
 from devices.tuya import TuyaPlug, create_tuya_plug
 
 __all__ = [
@@ -15,12 +16,14 @@ __all__ = [
     "LifxLight",
     "RingCamera",
     "RoombaVacuum",
+    "RoombaCloudVacuum",
     "TuyaPlug",
     "create_august_lock",
     "create_govee_light",
     "create_lifx_light",
     "create_ring_camera",
     "create_roomba_vacuum",
+    "create_roomba_cloud_vacuum",
     "create_tuya_plug",
 ]
 
@@ -30,7 +33,8 @@ DEVICE_FACTORIES = {
     "govee": create_govee_light,
     "tuya": create_tuya_plug,
     "august": create_august_lock,
-    "roomba": create_roomba_vacuum,
+    "roomba": create_roomba_vacuum,           # Local MQTT control (older iRobot app)
+    "roomba_cloud": create_roomba_cloud_vacuum,  # Cloud API (newer Roomba Home app)
     "ring": create_ring_camera,
 }
 

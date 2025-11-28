@@ -59,13 +59,29 @@ devices:
     config:
       lock_id: "from_secrets"
 
-  # Roomba
-  - id: roomba_main
-    name: Roomba
+  # Roomba (Local Control - for older Roombas using iRobot HOME app)
+  # Uses roombapy library for local MQTT control
+  # Get blid/password using: python -m roombapy.entry_points discover
+  - id: roomba_downstairs
+    name: Downstairs Roomba
     type: roomba
     room: null
     config:
       ip: "192.168.1.xxx"
+      # blid and password should be in secrets.yaml
+
+  # Roomba (Cloud Control - for newer Roombas using Roomba Home app)
+  # Uses irbt library for iRobot cloud API control
+  # Requires iRobot account credentials in secrets.yaml
+  - id: roomba_upstairs
+    name: Upstairs Roomba
+    type: roomba_cloud
+    room: null
+    config:
+      # Optional: specify which robot if you have multiple in your account
+      # robot_name: "Upstairs"     # Match by name
+      # robot_index: 1             # Or by index (0-based)
+      # robot_id: "XXXXXXXXX"      # Or by exact robot ID
 
   # Presence Sensors
   - id: mmwave_living
