@@ -150,17 +150,14 @@ class DownloadHandlers:
                 "message": f"Failed to add torrent to Synology",
             }
 
-        # Voice-friendly response
-        size_str = f"About {torrent.size_gb:.0f} gigs" if torrent.size_gb >= 1 else f"About {torrent.size_gb * 1024:.0f} megs"
-
+        # Voice-friendly response (no size - not useful for voice)
         return {
             "success": True,
-            "message": f"Downloading {movie.title} ({movie.year}), {quality_desc}. {size_str}.",
+            "message": f"Downloading {movie.title} ({movie.year}), {quality_desc}.",
             "movie": {
                 "title": movie.title,
                 "year": movie.year,
                 "quality": quality_desc,
-                "size_gb": round(torrent.size_gb, 1),
             },
         }
 

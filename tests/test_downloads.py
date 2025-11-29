@@ -146,10 +146,10 @@ class TestTorrentSelector:
         result = selector.select_best(movie)
         assert result is None
 
-    def test_rejects_oversized_1080p(self):
-        """Should reject 1080p torrents over size limit."""
+    def test_rejects_oversized(self):
+        """Should reject torrents over 30GB size limit."""
         selector = TorrentSelector()
-        torrents = [self.make_torrent(resolution="1080p", size_gb=25)]  # Over 20GB limit
+        torrents = [self.make_torrent(resolution="1080p", size_gb=35)]  # Over 30GB limit
         movie = self.make_movie(torrents)
 
         result = selector.select_best(movie)

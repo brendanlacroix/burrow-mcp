@@ -17,8 +17,7 @@ class QualityPreferences:
     """User quality preferences for torrent selection."""
 
     prefer_4k: bool = False
-    max_size_gb_1080p: float = 20.0
-    max_size_gb_4k: float = 80.0
+    max_size_gb: float = 30.0  # Hard limit for any movie
     min_seeders: int = 1
 
     # Resolution requirements - 1080p is the minimum
@@ -106,15 +105,11 @@ class TorrentSelector:
 
         # Check seeders
         if torrent.seeders < self.prefs.min_seeders:
-            return False, f"No seeders available"
+            return False, "No seeders available"
 
-        # Check size limits
-        if torrent.resolution_value >= 2160:
-            if torrent.size_gb > self.prefs.max_size_gb_4k:
-                return False, f"Size {torrent.size_gb:.1f}GB exceeds 4K limit of {self.prefs.max_size_gb_4k}GB"
-        else:
-            if torrent.size_gb > self.prefs.max_size_gb_1080p:
-                return False, f"Size {torrent.size_gb:.1f}GB exceeds 1080p limit of {self.prefs.max_size_gb_1080p}GB"
+        # Check size limit (30GB hard limit for any movie)
+        if torrent.size_gb > self.prefs.max_size_gb:
+            return False, f"Size {torrent.size_gb:.1f}GB exceeds {self.prefs.max_size_gb:.0f}GB limit"
 
         return True, None
 
@@ -177,23 +172,13 @@ class TorrentSelector:
         else:
             seeder_score = 10
 
-        # Size scoring (prefer reasonable sizes, penalize very large)
-        if torrent.resolution_value >= 2160:
-            # For 4K, 20-50GB is ideal
-            if 20 <= torrent.size_gb <= 50:
-                size_score = 20
-            elif torrent.size_gb < 20:
-                size_score = 15  # Might be overly compressed
-            else:
-                size_score = 10  # Large but acceptable
+        # Size scoring (prefer reasonable sizes)
+        if torrent.size_gb <= 15:
+            size_score = 20  # Ideal size
+        elif torrent.size_gb <= 25:
+            size_score = 15  # Good size
         else:
-            # For 1080p, 5-15GB is ideal
-            if 5 <= torrent.size_gb <= 15:
-                size_score = 20
-            elif torrent.size_gb < 5:
-                size_score = 15  # Might be overly compressed
-            else:
-                size_score = 10  # Large but acceptable
+            size_score = 10  # Large but within limit
 
         # Calculate total with weights
         # Resolution and GP are most important, followed by source, then others
