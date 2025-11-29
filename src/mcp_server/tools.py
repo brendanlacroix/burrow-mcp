@@ -88,6 +88,12 @@ TOOL_CATEGORIES = {
         "tags": ["audit", "history", "log", "events", "track"],
         "tools": ["get_device_history", "get_audit_log"],
     },
+    "downloads": {
+        "name": "Movie Downloads",
+        "description": "Download movies from PTP to Synology NAS",
+        "tags": ["download", "movie", "ptp", "torrent", "synology", "nas", "film"],
+        "tools": ["download_movie", "download_status"],
+    },
 }
 
 
@@ -1384,6 +1390,67 @@ def get_recommendation_tools() -> list[Tool]:
     ]
 
 
+def get_download_tools() -> list[Tool]:
+    """Get movie download tool definitions."""
+    return [
+        Tool(
+            name="download_movie",
+            description=(
+                "Download a movie from PassThePopcorn to the NAS. "
+                "Handles single movies, franchises ('the Mission Impossible movies'), "
+                "filmographies ('Greta Gerwig movies'), and 'newest/latest' requests. "
+                "Automatically selects the best available torrent matching quality preferences. "
+                "Minimum quality is 1080p - never downloads below that."
+            ),
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": (
+                                "Movie title, franchise name, or description. Examples: "
+                                "'Jennifer\\'s Body', 'the Mission Impossible movies', "
+                                "'the new Fast and Furious', 'Greta Gerwig movies'"
+                            ),
+                        },
+                        "year": {
+                            "type": "integer",
+                            "description": "Specific year if needed to disambiguate",
+                        },
+                        "prefer_4k": {
+                            "type": "boolean",
+                            "description": "Set true to prefer 2160p over 1080p (default: false)",
+                            "default": False,
+                        },
+                    },
+                    "required": ["query"],
+                },
+                [
+                    {"query": "Jennifer's Body"},
+                    {"query": "the Mission Impossible movies"},
+                    {"query": "the new Dune movie"},
+                    {"query": "Dune", "year": 2021},
+                    {"query": "Dune", "prefer_4k": True},
+                    {"query": "Greta Gerwig movies"},
+                    {"query": "the Daniel Craig Bond movies"},
+                ],
+            ),
+        ),
+        Tool(
+            name="download_status",
+            description=(
+                "Check what's currently downloading on the NAS. "
+                "Returns progress, speed, and ETA for active downloads."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+    ]
+
+
 def get_all_tools() -> list[Tool]:
     """Get all tool definitions."""
     return (
@@ -1398,6 +1465,7 @@ def get_all_tools() -> list[Tool]:
         + get_scene_tools()
         + get_scheduling_tools()
         + get_audit_tools()
+        + get_download_tools()
     )
 
 

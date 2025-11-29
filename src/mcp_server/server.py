@@ -12,6 +12,7 @@ from mcp.types import TextContent
 from config import BurrowConfig, SecretsConfig
 from devices.manager import DeviceManager
 from mcp_server.handlers import (
+    DownloadHandlers,
     LightHandlers,
     LockHandlers,
     MediaHandlers,
@@ -24,6 +25,8 @@ from mcp_server.handlers import (
     handle_discover_tools,
     handle_get_system_status,
 )
+from services.ptp import PTPClient
+from services.synology import SynologyClient
 from mcp_server.handlers.audit_context import set_store as set_audit_context_store
 from mcp_server.handlers.schedule_context import set_store as set_schedule_context_store
 from mcp_server.tools import get_all_tools
@@ -82,6 +85,14 @@ class BurrowMcpServer:
             self.scheduling = None
             self.media = MediaHandlers(device_manager, None)
             self.recommendations = None
+
+        # Initialize download handlers (PTP + Synology)
+        # These use environment variables for credentials
+        ptp_client = PTPClient()
+        synology_client = SynologyClient()
+        self.downloads = DownloadHandlers(
+            ptp_client, synology_client, tmdb_api_key=secrets.tmdb_api_key
+        )
 
         # Set up MCP server
         self.server = Server("burrow")
@@ -288,6 +299,12 @@ class BurrowMcpServer:
             if not self.scheduling:
                 return {"error": "Audit not available (store not initialized)"}
             return await self.scheduling.get_audit_log(args)
+
+        # Download tools (PTP + Synology)
+        elif name == "download_movie":
+            return await self.downloads.download_movie(args)
+        elif name == "download_status":
+            return await self.downloads.download_status(args)
 
         return {"error": f"Unknown tool: {name}"}
 
