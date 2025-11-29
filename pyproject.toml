@@ -11,6 +11,7 @@ dependencies = [
     "roombapy",               # Roomba local MQTT control
     "irbt",                   # Roomba cloud API (newer models)
     "ring-doorbell",          # Ring (optional, low priority)
+    "pyatv",                  # AppleTV control for media/recommendations
     "pyyaml",                 # Config
     "pydantic",               # Data validation
     "aiosqlite",              # Async state persistence

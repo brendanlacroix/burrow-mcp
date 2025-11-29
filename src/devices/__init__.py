@@ -1,5 +1,6 @@
 """Device implementations for Burrow MCP."""
 
+from devices.appletv import AppleTVDevice, create_appletv_device
 from devices.august import AugustLock, create_august_lock
 from devices.govee import GoveeLight, create_govee_light
 from devices.lifx import LifxLight, create_lifx_light
@@ -10,6 +11,7 @@ from devices.roomba_cloud import RoombaCloudVacuum, create_roomba_cloud_vacuum
 from devices.tuya import TuyaPlug, create_tuya_plug
 
 __all__ = [
+    "AppleTVDevice",
     "AugustLock",
     "DeviceManager",
     "GoveeLight",
@@ -18,6 +20,7 @@ __all__ = [
     "RoombaVacuum",
     "RoombaCloudVacuum",
     "TuyaPlug",
+    "create_appletv_device",
     "create_august_lock",
     "create_govee_light",
     "create_lifx_light",
@@ -36,6 +39,7 @@ DEVICE_FACTORIES = {
     "roomba": create_roomba_vacuum,           # Local MQTT control (older iRobot app)
     "roomba_cloud": create_roomba_cloud_vacuum,  # Cloud API (newer Roomba Home app)
     "ring": create_ring_camera,
+    "appletv": create_appletv_device,         # AppleTV media device
 }
 
 

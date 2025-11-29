@@ -16,6 +16,7 @@ class DeviceType(Enum):
     VACUUM = "vacuum"
     CAMERA = "camera"
     SENSOR = "sensor"
+    MEDIA = "media"
 
 
 class DeviceStatus(Enum):

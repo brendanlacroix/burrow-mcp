@@ -138,6 +138,76 @@ class StateStore:
             ON audit_log(event_type, timestamp)
         """)
 
+        # Viewing history table for media devices
+        await self._db.execute("""
+            CREATE TABLE IF NOT EXISTS viewing_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id TEXT NOT NULL,
+                app TEXT NOT NULL,
+                title TEXT,
+                series_name TEXT,
+                season INTEGER,
+                episode INTEGER,
+                media_type TEXT,
+                genre TEXT,
+                duration INTEGER,
+                watched_duration INTEGER,
+                started_at TEXT NOT NULL,
+                ended_at TEXT,
+                completed INTEGER DEFAULT 0
+            )
+        """)
+
+        await self._db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_viewing_device
+            ON viewing_history(device_id, started_at)
+        """)
+
+        await self._db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_viewing_app
+            ON viewing_history(app, started_at)
+        """)
+
+        await self._db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_viewing_title
+            ON viewing_history(title, series_name)
+        """)
+
+        # User preferences/ratings table
+        await self._db.execute("""
+            CREATE TABLE IF NOT EXISTS content_preferences (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT,
+                series_name TEXT,
+                app TEXT,
+                genre TEXT,
+                rating INTEGER,
+                liked INTEGER,
+                updated_at TEXT NOT NULL,
+                UNIQUE(title, series_name, app)
+            )
+        """)
+
+        # Followed shows table - for tracking currently airing shows
+        await self._db.execute("""
+            CREATE TABLE IF NOT EXISTS followed_shows (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                series_name TEXT NOT NULL UNIQUE,
+                tmdb_id INTEGER,
+                app TEXT,
+                status TEXT,
+                last_watched_season INTEGER,
+                last_watched_episode INTEGER,
+                added_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+        await self._db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_followed_shows_name
+            ON followed_shows(series_name)
+        """)
+
         await self._db.commit()
         logger.info(f"Initialized state database at {self.db_path}")
 
@@ -790,6 +860,543 @@ class StateStore:
             hours=hours, device_id=device_id, limit=limit
         )
 
+    # Viewing history methods
+    async def record_viewing_session(
+        self,
+        device_id: str,
+        app: str,
+        title: str | None = None,
+        series_name: str | None = None,
+        season: int | None = None,
+        episode: int | None = None,
+        media_type: str | None = None,
+        genre: str | None = None,
+        duration: int | None = None,
+    ) -> int:
+        """Record start of a viewing session.
+
+        Returns the session ID for updating when viewing ends.
+        """
+        if not self._db:
+            raise RuntimeError("Database not initialized")
+
+        now = datetime.utcnow().isoformat()
+
+        async with self._lock:
+            cursor = await self._db.execute(
+                """
+                INSERT INTO viewing_history
+                (device_id, app, title, series_name, season, episode,
+                 media_type, genre, duration, started_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    device_id,
+                    app,
+                    title,
+                    series_name,
+                    season,
+                    episode,
+                    media_type,
+                    genre,
+                    duration,
+                    now,
+                ),
+            )
+            await self._db.commit()
+            return cursor.lastrowid or 0
+
+    async def update_viewing_session(
+        self,
+        session_id: int,
+        watched_duration: int | None = None,
+        completed: bool = False,
+    ) -> None:
+        """Update a viewing session when it ends or content changes."""
+        if not self._db:
+            return
+
+        now = datetime.utcnow().isoformat()
+
+        async with self._lock:
+            await self._db.execute(
+                """
+                UPDATE viewing_history
+                SET ended_at = ?, watched_duration = ?, completed = ?
+                WHERE id = ?
+                """,
+                (now, watched_duration, 1 if completed else 0, session_id),
+            )
+            await self._db.commit()
+
+    async def get_viewing_history(
+        self,
+        device_id: str | None = None,
+        app: str | None = None,
+        days: int = 30,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Get viewing history, optionally filtered by device or app."""
+        if not self._db:
+            return []
+
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+
+        conditions = ["started_at >= ?"]
+        params: list[Any] = [cutoff]
+
+        if device_id:
+            conditions.append("device_id = ?")
+            params.append(device_id)
+
+        if app:
+            conditions.append("app = ?")
+            params.append(app)
+
+        params.append(limit)
+
+        history = []
+        async with self._lock:
+            async with self._db.execute(
+                f"""
+                SELECT * FROM viewing_history
+                WHERE {' AND '.join(conditions)}
+                ORDER BY started_at DESC
+                LIMIT ?
+                """,
+                params,
+            ) as cursor:
+                async for row in cursor:
+                    entry = {
+                        "id": row["id"],
+                        "device_id": row["device_id"],
+                        "app": row["app"],
+                        "started_at": row["started_at"],
+                    }
+
+                    if row["title"]:
+                        entry["title"] = row["title"]
+                    if row["series_name"]:
+                        entry["series_name"] = row["series_name"]
+                    if row["season"]:
+                        entry["season"] = row["season"]
+                    if row["episode"]:
+                        entry["episode"] = row["episode"]
+                    if row["media_type"]:
+                        entry["media_type"] = row["media_type"]
+                    if row["genre"]:
+                        entry["genre"] = row["genre"]
+                    if row["duration"]:
+                        entry["duration"] = row["duration"]
+                    if row["watched_duration"]:
+                        entry["watched_duration"] = row["watched_duration"]
+                    if row["ended_at"]:
+                        entry["ended_at"] = row["ended_at"]
+                    entry["completed"] = bool(row["completed"])
+
+                    history.append(entry)
+
+        return history
+
+    async def get_viewing_stats(
+        self, days: int = 30
+    ) -> dict[str, Any]:
+        """Get aggregated viewing statistics."""
+        if not self._db:
+            return {}
+
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+
+        stats: dict[str, Any] = {
+            "by_app": {},
+            "by_genre": {},
+            "by_media_type": {},
+            "total_sessions": 0,
+            "total_watch_time": 0,
+        }
+
+        async with self._lock:
+            # Count by app
+            async with self._db.execute(
+                """
+                SELECT app, COUNT(*) as count, SUM(watched_duration) as total_time
+                FROM viewing_history
+                WHERE started_at >= ?
+                GROUP BY app
+                ORDER BY count DESC
+                """,
+                (cutoff,),
+            ) as cursor:
+                async for row in cursor:
+                    stats["by_app"][row["app"]] = {
+                        "count": row["count"],
+                        "total_time": row["total_time"] or 0,
+                    }
+                    stats["total_sessions"] += row["count"]
+                    stats["total_watch_time"] += row["total_time"] or 0
+
+            # Count by genre
+            async with self._db.execute(
+                """
+                SELECT genre, COUNT(*) as count
+                FROM viewing_history
+                WHERE started_at >= ? AND genre IS NOT NULL
+                GROUP BY genre
+                ORDER BY count DESC
+                """,
+                (cutoff,),
+            ) as cursor:
+                async for row in cursor:
+                    stats["by_genre"][row["genre"]] = row["count"]
+
+            # Count by media type
+            async with self._db.execute(
+                """
+                SELECT media_type, COUNT(*) as count
+                FROM viewing_history
+                WHERE started_at >= ? AND media_type IS NOT NULL
+                GROUP BY media_type
+                ORDER BY count DESC
+                """,
+                (cutoff,),
+            ) as cursor:
+                async for row in cursor:
+                    stats["by_media_type"][row["media_type"]] = row["count"]
+
+        return stats
+
+    async def get_recently_watched(
+        self, limit: int = 20, unique_titles: bool = True
+    ) -> list[dict[str, Any]]:
+        """Get recently watched content.
+
+        Args:
+            limit: Maximum number of items to return
+            unique_titles: If True, only return unique titles (most recent viewing)
+        """
+        if not self._db:
+            return []
+
+        items = []
+        async with self._lock:
+            if unique_titles:
+                # Get unique titles by most recent viewing
+                async with self._db.execute(
+                    """
+                    SELECT app, title, series_name, season, episode, media_type, genre,
+                           MAX(started_at) as last_watched, COUNT(*) as watch_count
+                    FROM viewing_history
+                    WHERE title IS NOT NULL
+                    GROUP BY COALESCE(series_name, title)
+                    ORDER BY last_watched DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                ) as cursor:
+                    async for row in cursor:
+                        item = {
+                            "app": row["app"],
+                            "last_watched": row["last_watched"],
+                            "watch_count": row["watch_count"],
+                        }
+                        if row["title"]:
+                            item["title"] = row["title"]
+                        if row["series_name"]:
+                            item["series_name"] = row["series_name"]
+                        if row["season"]:
+                            item["season"] = row["season"]
+                        if row["episode"]:
+                            item["episode"] = row["episode"]
+                        if row["media_type"]:
+                            item["media_type"] = row["media_type"]
+                        if row["genre"]:
+                            item["genre"] = row["genre"]
+
+                        items.append(item)
+            else:
+                # Get all recent viewing
+                history = await self.get_viewing_history(limit=limit)
+                items = history
+
+        return items
+
+    async def get_frequently_watched(
+        self, days: int = 90, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Get most frequently watched shows/content."""
+        if not self._db:
+            return []
+
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+
+        items = []
+        async with self._lock:
+            async with self._db.execute(
+                """
+                SELECT app, title, series_name, media_type, genre,
+                       COUNT(*) as watch_count,
+                       SUM(watched_duration) as total_time,
+                       MAX(started_at) as last_watched
+                FROM viewing_history
+                WHERE started_at >= ? AND title IS NOT NULL
+                GROUP BY COALESCE(series_name, title)
+                ORDER BY watch_count DESC, last_watched DESC
+                LIMIT ?
+                """,
+                (cutoff, limit),
+            ) as cursor:
+                async for row in cursor:
+                    item = {
+                        "app": row["app"],
+                        "watch_count": row["watch_count"],
+                        "total_time": row["total_time"] or 0,
+                        "last_watched": row["last_watched"],
+                    }
+                    if row["title"]:
+                        item["title"] = row["title"]
+                    if row["series_name"]:
+                        item["series_name"] = row["series_name"]
+                    if row["media_type"]:
+                        item["media_type"] = row["media_type"]
+                    if row["genre"]:
+                        item["genre"] = row["genre"]
+
+                    items.append(item)
+
+        return items
+
+    async def set_content_preference(
+        self,
+        title: str | None = None,
+        series_name: str | None = None,
+        app: str | None = None,
+        genre: str | None = None,
+        rating: int | None = None,
+        liked: bool | None = None,
+    ) -> None:
+        """Set user preference for content."""
+        if not self._db:
+            return
+
+        if not title and not series_name:
+            return
+
+        now = datetime.utcnow().isoformat()
+
+        async with self._lock:
+            await self._db.execute(
+                """
+                INSERT INTO content_preferences
+                (title, series_name, app, genre, rating, liked, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(title, series_name, app)
+                DO UPDATE SET
+                    rating = COALESCE(?, rating),
+                    liked = COALESCE(?, liked),
+                    updated_at = ?
+                """,
+                (
+                    title,
+                    series_name,
+                    app,
+                    genre,
+                    rating,
+                    1 if liked else (0 if liked is False else None),
+                    now,
+                    rating,
+                    1 if liked else (0 if liked is False else None),
+                    now,
+                ),
+            )
+            await self._db.commit()
+
+    async def get_content_preferences(
+        self, liked_only: bool = False
+    ) -> list[dict[str, Any]]:
+        """Get user content preferences."""
+        if not self._db:
+            return []
+
+        prefs = []
+        async with self._lock:
+            query = "SELECT * FROM content_preferences"
+            if liked_only:
+                query += " WHERE liked = 1"
+            query += " ORDER BY updated_at DESC"
+
+            async with self._db.execute(query) as cursor:
+                async for row in cursor:
+                    pref = {}
+                    if row["title"]:
+                        pref["title"] = row["title"]
+                    if row["series_name"]:
+                        pref["series_name"] = row["series_name"]
+                    if row["app"]:
+                        pref["app"] = row["app"]
+                    if row["genre"]:
+                        pref["genre"] = row["genre"]
+                    if row["rating"]:
+                        pref["rating"] = row["rating"]
+                    if row["liked"] is not None:
+                        pref["liked"] = bool(row["liked"])
+                    pref["updated_at"] = row["updated_at"]
+                    prefs.append(pref)
+
+        return prefs
+
+    # Followed shows methods
+    async def follow_show(
+        self,
+        series_name: str,
+        app: str | None = None,
+        tmdb_id: int | None = None,
+        status: str | None = None,
+        last_watched_season: int | None = None,
+        last_watched_episode: int | None = None,
+    ) -> None:
+        """Follow a show for tracking new episodes."""
+        if not self._db:
+            return
+
+        now = datetime.utcnow().isoformat()
+
+        async with self._lock:
+            await self._db.execute(
+                """
+                INSERT INTO followed_shows
+                (series_name, tmdb_id, app, status, last_watched_season,
+                 last_watched_episode, added_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(series_name) DO UPDATE SET
+                    tmdb_id = COALESCE(?, tmdb_id),
+                    app = COALESCE(?, app),
+                    status = COALESCE(?, status),
+                    last_watched_season = COALESCE(?, last_watched_season),
+                    last_watched_episode = COALESCE(?, last_watched_episode),
+                    updated_at = ?
+                """,
+                (
+                    series_name,
+                    tmdb_id,
+                    app,
+                    status,
+                    last_watched_season,
+                    last_watched_episode,
+                    now,
+                    now,
+                    tmdb_id,
+                    app,
+                    status,
+                    last_watched_season,
+                    last_watched_episode,
+                    now,
+                ),
+            )
+            await self._db.commit()
+
+    async def unfollow_show(self, series_name: str) -> bool:
+        """Stop following a show."""
+        if not self._db:
+            return False
+
+        async with self._lock:
+            cursor = await self._db.execute(
+                "DELETE FROM followed_shows WHERE series_name = ?",
+                (series_name,),
+            )
+            await self._db.commit()
+            return cursor.rowcount > 0
+
+    async def get_followed_shows(self) -> list[dict[str, Any]]:
+        """Get all followed shows."""
+        if not self._db:
+            return []
+
+        shows = []
+        async with self._lock:
+            async with self._db.execute(
+                "SELECT * FROM followed_shows ORDER BY updated_at DESC"
+            ) as cursor:
+                async for row in cursor:
+                    show = {
+                        "series_name": row["series_name"],
+                        "added_at": row["added_at"],
+                    }
+                    if row["tmdb_id"]:
+                        show["tmdb_id"] = row["tmdb_id"]
+                    if row["app"]:
+                        show["app"] = row["app"]
+                    if row["status"]:
+                        show["status"] = row["status"]
+                    if row["last_watched_season"]:
+                        show["last_watched_season"] = row["last_watched_season"]
+                    if row["last_watched_episode"]:
+                        show["last_watched_episode"] = row["last_watched_episode"]
+                    shows.append(show)
+
+        return shows
+
+    async def update_show_progress(
+        self, series_name: str, season: int, episode: int
+    ) -> None:
+        """Update where you left off on a show."""
+        if not self._db:
+            return
+
+        now = datetime.utcnow().isoformat()
+
+        async with self._lock:
+            await self._db.execute(
+                """
+                UPDATE followed_shows
+                SET last_watched_season = ?, last_watched_episode = ?, updated_at = ?
+                WHERE series_name = ?
+                """,
+                (season, episode, now, series_name),
+            )
+            await self._db.commit()
+
+    async def seed_favorites(
+        self, shows: list[dict[str, Any]]
+    ) -> int:
+        """Seed initial favorites and followed shows.
+
+        Args:
+            shows: List of dicts with keys:
+                - series_name (required): Show name
+                - app (optional): Where to watch it
+                - liked (optional): True to mark as liked
+
+        Returns:
+            Number of shows added
+        """
+        if not self._db:
+            return 0
+
+        count = 0
+        for show in shows:
+            series_name = show.get("series_name")
+            if not series_name:
+                continue
+
+            app = show.get("app")
+            liked = show.get("liked", True)
+
+            # Add to followed shows
+            await self.follow_show(series_name=series_name, app=app)
+
+            # Also add to preferences if liked
+            if liked:
+                await self.set_content_preference(
+                    series_name=series_name,
+                    app=app,
+                    liked=True,
+                )
+
+            count += 1
+
+        return count
+
     # Cleanup methods
     async def cleanup_old_history(self, days: int = 7) -> int:
         """Delete history older than specified days.
@@ -836,9 +1443,17 @@ class StateStore:
             )
             schedules_deleted = cursor.rowcount
 
+            # Clean up viewing history (keep 90 days by default)
+            viewing_cutoff = (datetime.utcnow() - timedelta(days=90)).isoformat()
+            cursor = await self._db.execute(
+                "DELETE FROM viewing_history WHERE started_at < ?",
+                (viewing_cutoff,),
+            )
+            viewing_deleted = cursor.rowcount
+
             await self._db.commit()
 
-            total = device_deleted + presence_deleted + audit_deleted + schedules_deleted
+            total = device_deleted + presence_deleted + audit_deleted + schedules_deleted + viewing_deleted
             if total > 0:
                 logger.info(f"Cleaned up {total} old history records")
             return total

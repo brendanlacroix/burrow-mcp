@@ -14,8 +14,10 @@ from devices.manager import DeviceManager
 from mcp_server.handlers import (
     LightHandlers,
     LockHandlers,
+    MediaHandlers,
     PlugHandlers,
     QueryHandlers,
+    RecommendationHandlers,
     SceneHandlers,
     SchedulingHandlers,
     VacuumHandlers,
@@ -65,15 +67,21 @@ class BurrowMcpServer:
         self.vacuum = VacuumHandlers(device_manager)
         self.scenes = SceneHandlers(config, device_manager)
 
-        # Initialize scheduling handlers if store is available
+        # Initialize scheduling and media handlers if store is available
         if store:
             self.scheduling = SchedulingHandlers(device_manager, store)
+            self.media = MediaHandlers(device_manager, store)
+            self.recommendations = RecommendationHandlers(
+                store, tmdb_api_key=secrets.tmdb_api_key
+            )
             # Enable schedule context checking for device handlers
             set_schedule_context_store(store)
             # Enable audit logging for device handlers
             set_audit_context_store(store)
         else:
             self.scheduling = None
+            self.media = MediaHandlers(device_manager, None)
+            self.recommendations = None
 
         # Set up MCP server
         self.server = Server("burrow")
@@ -174,6 +182,78 @@ class BurrowMcpServer:
             return await self.vacuum.stop_vacuum(args)
         elif name == "dock_vacuum":
             return await self.vacuum.dock_vacuum(args)
+
+        # Media tools
+        elif name == "get_now_playing":
+            return await self.media.get_now_playing(args)
+        elif name == "media_play":
+            return await self.media.media_play(args)
+        elif name == "media_pause":
+            return await self.media.media_pause(args)
+        elif name == "media_stop":
+            return await self.media.media_stop(args)
+        elif name == "media_skip_forward":
+            return await self.media.media_skip_forward(args)
+        elif name == "media_skip_backward":
+            return await self.media.media_skip_backward(args)
+        elif name == "launch_app":
+            return await self.media.launch_app(args)
+        elif name == "list_apps":
+            return await self.media.list_apps(args)
+
+        # Recommendation tools
+        elif name == "get_recommendations":
+            if not self.recommendations:
+                return {"error": "Recommendations not available (store not initialized)"}
+            return await self.recommendations.get_recommendations(args)
+        elif name == "what_to_watch":
+            if not self.recommendations:
+                return {"error": "Recommendations not available (store not initialized)"}
+            return await self.recommendations.what_to_watch(args)
+        elif name == "get_viewing_history":
+            if not self.recommendations:
+                return {"error": "Viewing history not available (store not initialized)"}
+            return await self.recommendations.get_viewing_history(args)
+        elif name == "get_viewing_stats":
+            if not self.recommendations:
+                return {"error": "Viewing stats not available (store not initialized)"}
+            return await self.recommendations.get_viewing_stats(args)
+        elif name == "rate_content":
+            if not self.recommendations:
+                return {"error": "Rating not available (store not initialized)"}
+            return await self.recommendations.rate_content(args)
+        elif name == "seed_favorites":
+            if not self.recommendations:
+                return {"error": "Favorites not available (store not initialized)"}
+            return await self.recommendations.seed_favorites(args)
+        elif name == "follow_show":
+            if not self.recommendations:
+                return {"error": "Follow show not available (store not initialized)"}
+            return await self.recommendations.follow_show(args)
+        elif name == "unfollow_show":
+            if not self.recommendations:
+                return {"error": "Unfollow show not available (store not initialized)"}
+            return await self.recommendations.unfollow_show(args)
+        elif name == "get_followed_shows":
+            if not self.recommendations:
+                return {"error": "Followed shows not available (store not initialized)"}
+            return await self.recommendations.get_followed_shows(args)
+        elif name == "check_new_episodes":
+            if not self.recommendations:
+                return {"error": "Episode check not available (store not initialized)"}
+            return await self.recommendations.check_new_episodes(args)
+        elif name == "discover_content":
+            if not self.recommendations:
+                return {"error": "Discovery not available (store not initialized)"}
+            return await self.recommendations.discover_content(args)
+        elif name == "find_similar":
+            if not self.recommendations:
+                return {"error": "Find similar not available (store not initialized)"}
+            return await self.recommendations.find_similar(args)
+        elif name == "not_that_try_again":
+            if not self.recommendations:
+                return {"error": "Not available (store not initialized)"}
+            return await self.recommendations.not_that_try_again(args)
 
         # Scene tools
         elif name == "list_scenes":

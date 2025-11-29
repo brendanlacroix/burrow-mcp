@@ -8,7 +8,9 @@ from config import load_config, load_secrets
 from devices import register_all_factories
 from devices.manager import DeviceManager
 from mcp_server.server import create_server
+from persistence import get_store
 from presence import PresenceManager, create_presence_manager
+from recommendation import start_viewing_tracker, stop_viewing_tracker
 
 logging.basicConfig(
     level=logging.INFO,
@@ -70,8 +72,20 @@ async def main() -> None:
         except Exception as e:
             logger.warning(f"Failed to start presence manager: {e}")
 
+    # Initialize state store for persistence
+    store = await get_store()
+
+    # Start viewing tracker for background TV monitoring
+    # This tracks what's playing on AppleTVs even when using the remote
+    viewing_tracker = None
+    try:
+        viewing_tracker = await start_viewing_tracker(device_manager, store)
+        logger.info("Started viewing tracker for TV recommendations")
+    except Exception as e:
+        logger.warning(f"Failed to start viewing tracker: {e}")
+
     # Create and run MCP server
-    server = create_server(config, secrets, device_manager, presence_manager)
+    server = create_server(config, secrets, device_manager, presence_manager, store)
 
     try:
         logger.info("MCP server running...")
@@ -79,6 +93,8 @@ async def main() -> None:
     except KeyboardInterrupt:
         logger.info("Shutting down...")
     finally:
+        # Stop background services
+        await stop_viewing_tracker()
         if presence_manager:
             await presence_manager.stop()
         # Persist state before shutdown
