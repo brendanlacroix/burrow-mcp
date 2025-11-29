@@ -242,6 +242,18 @@ class BurrowMcpServer:
             if not self.recommendations:
                 return {"error": "Episode check not available (store not initialized)"}
             return await self.recommendations.check_new_episodes(args)
+        elif name == "discover_content":
+            if not self.recommendations:
+                return {"error": "Discovery not available (store not initialized)"}
+            return await self.recommendations.discover_content(args)
+        elif name == "find_similar":
+            if not self.recommendations:
+                return {"error": "Find similar not available (store not initialized)"}
+            return await self.recommendations.find_similar(args)
+        elif name == "not_that_try_again":
+            if not self.recommendations:
+                return {"error": "Not available (store not initialized)"}
+            return await self.recommendations.not_that_try_again(args)
 
         # Scene tools
         elif name == "list_scenes":

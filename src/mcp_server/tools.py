@@ -63,10 +63,11 @@ TOOL_CATEGORIES = {
         "name": "TV Recommendations",
         "description": "Get personalized TV and movie recommendations based on viewing history",
         "tags": ["recommend", "suggestions", "watch", "tv", "movies", "shows", "what to watch",
-                 "follow", "favorites", "new episodes", "airing"],
+                 "follow", "favorites", "new episodes", "airing", "discover", "similar", "genre", "mood"],
         "tools": ["get_recommendations", "what_to_watch", "get_viewing_history",
                   "get_viewing_stats", "rate_content", "seed_favorites",
-                  "follow_show", "unfollow_show", "get_followed_shows", "check_new_episodes"],
+                  "follow_show", "unfollow_show", "get_followed_shows", "check_new_episodes",
+                  "discover_content", "find_similar", "not_that_try_again"],
     },
     "scenes": {
         "name": "Scenes & Automation",
@@ -1245,6 +1246,138 @@ def get_recommendation_tools() -> list[Tool]:
                 [
                     {},
                     {"days_ahead": 14},
+                ],
+            ),
+        ),
+        Tool(
+            name="discover_content",
+            description=(
+                "Find movies or shows by genre or mood. Perfect for 'I want to watch an action movie' "
+                "or 'find me something scary'. Supports genres (action, comedy, horror, etc.) and "
+                "moods (funny, scary, relaxing, mind-bending, etc.)."
+            ),
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "media_type": {
+                            "type": "string",
+                            "enum": ["movie", "tv"],
+                            "description": "Type of content to find (default: movie)",
+                            "default": "movie",
+                        },
+                        "genre": {
+                            "type": "string",
+                            "description": (
+                                "Genre to search for: action, adventure, animation, comedy, crime, "
+                                "documentary, drama, family, fantasy, horror, mystery, romance, "
+                                "sci-fi, thriller, war, western"
+                            ),
+                        },
+                        "mood": {
+                            "type": "string",
+                            "description": (
+                                "Mood to match: scary, funny, romantic, exciting, relaxing, "
+                                "mind-bending, heartwarming, dark, suspenseful, epic, etc."
+                            ),
+                        },
+                        "min_rating": {
+                            "type": "number",
+                            "description": "Minimum TMDb rating 1-10 (optional, helps filter quality)",
+                        },
+                        "exclude": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Titles to exclude (ones you've already seen or rejected)",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Max results (default 5)",
+                            "default": 5,
+                        },
+                    },
+                },
+                [
+                    {"genre": "action"},
+                    {"media_type": "movie", "genre": "horror", "min_rating": 7},
+                    {"mood": "funny", "media_type": "tv"},
+                    {"genre": "thriller", "exclude": ["Se7en", "Zodiac"]},
+                    {"mood": "mind-bending", "media_type": "movie"},
+                ],
+            ),
+        ),
+        Tool(
+            name="find_similar",
+            description=(
+                "Find content similar to something you love. 'Something like The OA' or "
+                "'movies like Inception'. Great for 'not that, but something like it' situations."
+            ),
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "title": {
+                            "type": "string",
+                            "description": "Movie or show to find similar content to",
+                        },
+                        "media_type": {
+                            "type": "string",
+                            "enum": ["movie", "tv"],
+                            "description": "Type of the original content (auto-detected if not specified)",
+                        },
+                        "exclude": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Titles to exclude (the original is always excluded)",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Max results (default 5)",
+                            "default": 5,
+                        },
+                    },
+                    "required": ["title"],
+                },
+                [
+                    {"title": "The OA"},
+                    {"title": "Inception", "media_type": "movie"},
+                    {"title": "Breaking Bad", "exclude": ["Better Call Saul"]},
+                    {"title": "Stranger Things", "limit": 10},
+                ],
+            ),
+        ),
+        Tool(
+            name="not_that_try_again",
+            description=(
+                "When a suggestion doesn't hit right - find something else similar. "
+                "Use this when you want something like what was suggested but not that exact thing. "
+                "Pass the rejected title(s) to get alternatives."
+            ),
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "rejected": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Title(s) that were rejected",
+                        },
+                        "original_query": {
+                            "type": "string",
+                            "description": "What you originally asked for (e.g., 'action movie', 'like The OA')",
+                        },
+                        "media_type": {
+                            "type": "string",
+                            "enum": ["movie", "tv"],
+                            "description": "Type of content",
+                        },
+                    },
+                    "required": ["rejected"],
+                },
+                [
+                    {"rejected": ["Die Hard"], "original_query": "action movie"},
+                    {"rejected": ["Stranger Things", "Dark"], "original_query": "like The OA"},
+                    {"rejected": ["The Hangover"], "original_query": "funny movie", "media_type": "movie"},
                 ],
             ),
         ),
