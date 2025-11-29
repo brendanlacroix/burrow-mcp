@@ -71,7 +71,9 @@ class BurrowMcpServer:
         if store:
             self.scheduling = SchedulingHandlers(device_manager, store)
             self.media = MediaHandlers(device_manager, store)
-            self.recommendations = RecommendationHandlers(store)
+            self.recommendations = RecommendationHandlers(
+                store, tmdb_api_key=secrets.tmdb_api_key
+            )
             # Enable schedule context checking for device handlers
             set_schedule_context_store(store)
             # Enable audit logging for device handlers
@@ -220,6 +222,26 @@ class BurrowMcpServer:
             if not self.recommendations:
                 return {"error": "Rating not available (store not initialized)"}
             return await self.recommendations.rate_content(args)
+        elif name == "seed_favorites":
+            if not self.recommendations:
+                return {"error": "Favorites not available (store not initialized)"}
+            return await self.recommendations.seed_favorites(args)
+        elif name == "follow_show":
+            if not self.recommendations:
+                return {"error": "Follow show not available (store not initialized)"}
+            return await self.recommendations.follow_show(args)
+        elif name == "unfollow_show":
+            if not self.recommendations:
+                return {"error": "Unfollow show not available (store not initialized)"}
+            return await self.recommendations.unfollow_show(args)
+        elif name == "get_followed_shows":
+            if not self.recommendations:
+                return {"error": "Followed shows not available (store not initialized)"}
+            return await self.recommendations.get_followed_shows(args)
+        elif name == "check_new_episodes":
+            if not self.recommendations:
+                return {"error": "Episode check not available (store not initialized)"}
+            return await self.recommendations.check_new_episodes(args)
 
         # Scene tools
         elif name == "list_scenes":

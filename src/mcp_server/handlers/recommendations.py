@@ -5,6 +5,7 @@ from typing import Any
 
 from persistence import StateStore
 from recommendation import RecommendationEngine
+from recommendation.tv_metadata import TVMetadata, get_streaming_service
 
 logger = logging.getLogger(__name__)
 
@@ -12,9 +13,10 @@ logger = logging.getLogger(__name__)
 class RecommendationHandlers:
     """Handlers for TV recommendation tools."""
 
-    def __init__(self, store: StateStore):
+    def __init__(self, store: StateStore, tmdb_api_key: str | None = None):
         self.store = store
         self.engine = RecommendationEngine(store)
+        self.tv_metadata = TVMetadata(tmdb_api_key)
 
     async def get_recommendations(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get personalized TV recommendations."""
@@ -207,5 +209,185 @@ class RecommendationHandlers:
             logger.error(f"Failed to rate content: {e}")
             return {
                 "error": "Failed to save rating",
+                "message": str(e),
+            }
+
+    async def seed_favorites(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Seed initial favorites without watching them first."""
+        shows = args.get("shows", [])
+
+        if not shows:
+            return {
+                "error": "No shows provided",
+                "message": "Provide a list of shows with 'series_name' and optionally 'app'",
+            }
+
+        try:
+            count = await self.store.seed_favorites(shows)
+
+            return {
+                "success": True,
+                "added": count,
+                "message": f"Added {count} shows to your favorites!",
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to seed favorites: {e}")
+            return {
+                "error": "Failed to seed favorites",
+                "message": str(e),
+            }
+
+    async def follow_show(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Follow a show to track new episodes."""
+        series_name = args.get("series_name")
+        app = args.get("app")
+
+        if not series_name:
+            return {"error": "series_name is required"}
+
+        try:
+            # Try to get TMDb info for the show
+            tmdb_id = None
+            status = None
+
+            show = await self.tv_metadata.get_show_by_name(series_name)
+            if show:
+                tmdb_id = show.tmdb_id
+                status = show.status
+                # If app not specified, try to determine from networks
+                if not app and show.networks:
+                    app = get_streaming_service(show.networks)
+
+            await self.store.follow_show(
+                series_name=series_name,
+                app=app,
+                tmdb_id=tmdb_id,
+                status=status,
+            )
+
+            result = {
+                "success": True,
+                "series_name": series_name,
+                "message": f"Now following '{series_name}'",
+            }
+
+            if app:
+                result["app"] = app
+            if status:
+                result["status"] = status
+            if show and show.next_episode:
+                result["next_episode"] = show.next_episode.to_dict()
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to follow show: {e}")
+            return {
+                "error": "Failed to follow show",
+                "message": str(e),
+            }
+
+    async def unfollow_show(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Stop following a show."""
+        series_name = args.get("series_name")
+
+        if not series_name:
+            return {"error": "series_name is required"}
+
+        try:
+            removed = await self.store.unfollow_show(series_name)
+
+            if removed:
+                return {
+                    "success": True,
+                    "series_name": series_name,
+                    "message": f"No longer following '{series_name}'",
+                }
+            else:
+                return {
+                    "success": False,
+                    "series_name": series_name,
+                    "message": f"'{series_name}' was not in your followed shows",
+                }
+
+        except Exception as e:
+            logger.error(f"Failed to unfollow show: {e}")
+            return {
+                "error": "Failed to unfollow show",
+                "message": str(e),
+            }
+
+    async def get_followed_shows(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Get list of followed shows."""
+        try:
+            shows = await self.store.get_followed_shows()
+
+            return {
+                "shows": shows,
+                "count": len(shows),
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get followed shows: {e}")
+            return {
+                "error": "Failed to get followed shows",
+                "message": str(e),
+            }
+
+    async def check_new_episodes(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Check for new episodes of followed shows."""
+        days_ahead = args.get("days_ahead", 7)
+
+        try:
+            followed = await self.store.get_followed_shows()
+
+            if not followed:
+                return {
+                    "upcoming": [],
+                    "message": "No shows being followed. Use follow_show to add some!",
+                }
+
+            # Get TMDb IDs for shows that have them
+            tmdb_ids = [s["tmdb_id"] for s in followed if s.get("tmdb_id")]
+
+            if not tmdb_ids:
+                return {
+                    "upcoming": [],
+                    "message": "No TMDb IDs for followed shows. TMDb API key may not be configured.",
+                }
+
+            # Check for upcoming episodes
+            upcoming = await self.tv_metadata.get_upcoming_episodes(
+                tmdb_ids, days_ahead=days_ahead
+            )
+
+            # Enhance with where to watch
+            for ep in upcoming:
+                show_info = next(
+                    (s for s in followed if s.get("tmdb_id") == ep["tmdb_id"]),
+                    None
+                )
+                if show_info and show_info.get("app"):
+                    ep["where_to_watch"] = show_info["app"]
+
+            result = {
+                "upcoming": upcoming,
+                "count": len(upcoming),
+                "days_ahead": days_ahead,
+            }
+
+            if upcoming:
+                # Friendly summary
+                today_eps = [e for e in upcoming if e["days_until"] == 0]
+                if today_eps:
+                    result["today"] = [e["show"] for e in today_eps]
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to check new episodes: {e}")
+            return {
+                "error": "Failed to check for new episodes",
                 "message": str(e),
             }

@@ -76,6 +76,8 @@ class SecretsConfig(BaseModel):
     mqtt: dict[str, Any] = Field(default_factory=dict)
     # Per-device AppleTV credentials (pairing credentials per device_id)
     appletv: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # TMDb API key for TV show metadata (free at themoviedb.org)
+    tmdb_api_key: str | None = None
 
 
 def find_config_dir() -> Path:

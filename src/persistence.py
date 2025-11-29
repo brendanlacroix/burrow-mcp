@@ -188,6 +188,26 @@ class StateStore:
             )
         """)
 
+        # Followed shows table - for tracking currently airing shows
+        await self._db.execute("""
+            CREATE TABLE IF NOT EXISTS followed_shows (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                series_name TEXT NOT NULL UNIQUE,
+                tmdb_id INTEGER,
+                app TEXT,
+                status TEXT,
+                last_watched_season INTEGER,
+                last_watched_episode INTEGER,
+                added_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+        await self._db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_followed_shows_name
+            ON followed_shows(series_name)
+        """)
+
         await self._db.commit()
         logger.info(f"Initialized state database at {self.db_path}")
 
@@ -1223,6 +1243,159 @@ class StateStore:
                     prefs.append(pref)
 
         return prefs
+
+    # Followed shows methods
+    async def follow_show(
+        self,
+        series_name: str,
+        app: str | None = None,
+        tmdb_id: int | None = None,
+        status: str | None = None,
+        last_watched_season: int | None = None,
+        last_watched_episode: int | None = None,
+    ) -> None:
+        """Follow a show for tracking new episodes."""
+        if not self._db:
+            return
+
+        now = datetime.utcnow().isoformat()
+
+        async with self._lock:
+            await self._db.execute(
+                """
+                INSERT INTO followed_shows
+                (series_name, tmdb_id, app, status, last_watched_season,
+                 last_watched_episode, added_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(series_name) DO UPDATE SET
+                    tmdb_id = COALESCE(?, tmdb_id),
+                    app = COALESCE(?, app),
+                    status = COALESCE(?, status),
+                    last_watched_season = COALESCE(?, last_watched_season),
+                    last_watched_episode = COALESCE(?, last_watched_episode),
+                    updated_at = ?
+                """,
+                (
+                    series_name,
+                    tmdb_id,
+                    app,
+                    status,
+                    last_watched_season,
+                    last_watched_episode,
+                    now,
+                    now,
+                    tmdb_id,
+                    app,
+                    status,
+                    last_watched_season,
+                    last_watched_episode,
+                    now,
+                ),
+            )
+            await self._db.commit()
+
+    async def unfollow_show(self, series_name: str) -> bool:
+        """Stop following a show."""
+        if not self._db:
+            return False
+
+        async with self._lock:
+            cursor = await self._db.execute(
+                "DELETE FROM followed_shows WHERE series_name = ?",
+                (series_name,),
+            )
+            await self._db.commit()
+            return cursor.rowcount > 0
+
+    async def get_followed_shows(self) -> list[dict[str, Any]]:
+        """Get all followed shows."""
+        if not self._db:
+            return []
+
+        shows = []
+        async with self._lock:
+            async with self._db.execute(
+                "SELECT * FROM followed_shows ORDER BY updated_at DESC"
+            ) as cursor:
+                async for row in cursor:
+                    show = {
+                        "series_name": row["series_name"],
+                        "added_at": row["added_at"],
+                    }
+                    if row["tmdb_id"]:
+                        show["tmdb_id"] = row["tmdb_id"]
+                    if row["app"]:
+                        show["app"] = row["app"]
+                    if row["status"]:
+                        show["status"] = row["status"]
+                    if row["last_watched_season"]:
+                        show["last_watched_season"] = row["last_watched_season"]
+                    if row["last_watched_episode"]:
+                        show["last_watched_episode"] = row["last_watched_episode"]
+                    shows.append(show)
+
+        return shows
+
+    async def update_show_progress(
+        self, series_name: str, season: int, episode: int
+    ) -> None:
+        """Update where you left off on a show."""
+        if not self._db:
+            return
+
+        now = datetime.utcnow().isoformat()
+
+        async with self._lock:
+            await self._db.execute(
+                """
+                UPDATE followed_shows
+                SET last_watched_season = ?, last_watched_episode = ?, updated_at = ?
+                WHERE series_name = ?
+                """,
+                (season, episode, now, series_name),
+            )
+            await self._db.commit()
+
+    async def seed_favorites(
+        self, shows: list[dict[str, Any]]
+    ) -> int:
+        """Seed initial favorites and followed shows.
+
+        Args:
+            shows: List of dicts with keys:
+                - series_name (required): Show name
+                - app (optional): Where to watch it
+                - liked (optional): True to mark as liked
+
+        Returns:
+            Number of shows added
+        """
+        if not self._db:
+            return 0
+
+        count = 0
+        for show in shows:
+            series_name = show.get("series_name")
+            if not series_name:
+                continue
+
+            app = show.get("app")
+            liked = show.get("liked", True)
+
+            # Add to followed shows
+            await self.follow_show(series_name=series_name, app=app)
+
+            # Also add to preferences if liked
+            if liked:
+                await self.set_content_preference(
+                    series_name=series_name,
+                    app=app,
+                    liked=True,
+                )
+
+            count += 1
+
+        return count
 
     # Cleanup methods
     async def cleanup_old_history(self, days: int = 7) -> int:

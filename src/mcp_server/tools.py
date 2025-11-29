@@ -62,9 +62,11 @@ TOOL_CATEGORIES = {
     "recommendations": {
         "name": "TV Recommendations",
         "description": "Get personalized TV and movie recommendations based on viewing history",
-        "tags": ["recommend", "suggestions", "watch", "tv", "movies", "shows", "what to watch"],
+        "tags": ["recommend", "suggestions", "watch", "tv", "movies", "shows", "what to watch",
+                 "follow", "favorites", "new episodes", "airing"],
         "tools": ["get_recommendations", "what_to_watch", "get_viewing_history",
-                  "get_viewing_stats", "rate_content"],
+                  "get_viewing_stats", "rate_content", "seed_favorites",
+                  "follow_show", "unfollow_show", "get_followed_shows", "check_new_episodes"],
     },
     "scenes": {
         "name": "Scenes & Automation",
@@ -1116,6 +1118,133 @@ def get_recommendation_tools() -> list[Tool]:
                     {"series_name": "The Office", "liked": True},
                     {"title": "Inception", "rating": 5},
                     {"series_name": "Breaking Bad", "liked": True, "rating": 5},
+                ],
+            ),
+        ),
+        Tool(
+            name="seed_favorites",
+            description=(
+                "Seed your favorite shows to kickstart recommendations. "
+                "Tell me what you and Jeff love watching and I'll remember it."
+            ),
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "shows": {
+                            "type": "array",
+                            "description": "List of shows to add as favorites",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "series_name": {
+                                        "type": "string",
+                                        "description": "Name of the show",
+                                    },
+                                    "app": {
+                                        "type": "string",
+                                        "description": "Where to watch it (Netflix, Hulu, etc.)",
+                                    },
+                                },
+                                "required": ["series_name"],
+                            },
+                        },
+                    },
+                    "required": ["shows"],
+                },
+                [
+                    {
+                        "shows": [
+                            {"series_name": "Real Housewives of Salt Lake City", "app": "Peacock"},
+                            {"series_name": "The Office", "app": "Peacock"},
+                            {"series_name": "Breaking Bad", "app": "Netflix"},
+                        ]
+                    },
+                ],
+            ),
+        ),
+        Tool(
+            name="follow_show",
+            description=(
+                "Follow a currently-airing show to get notified about new episodes. "
+                "Great for shows like Real Housewives where you want to know when new episodes drop."
+            ),
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "series_name": {
+                            "type": "string",
+                            "description": "Name of the show to follow",
+                        },
+                        "app": {
+                            "type": "string",
+                            "description": "Where to watch it",
+                        },
+                        "current_season": {
+                            "type": "integer",
+                            "description": "Season you're currently watching",
+                        },
+                        "current_episode": {
+                            "type": "integer",
+                            "description": "Episode you're on",
+                        },
+                    },
+                    "required": ["series_name"],
+                },
+                [
+                    {"series_name": "Real Housewives of Salt Lake City", "app": "Peacock"},
+                    {"series_name": "The Bear", "app": "Hulu", "current_season": 3, "current_episode": 5},
+                ],
+            ),
+        ),
+        Tool(
+            name="unfollow_show",
+            description="Stop following a show.",
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "series_name": {
+                            "type": "string",
+                            "description": "Name of the show to unfollow",
+                        },
+                    },
+                    "required": ["series_name"],
+                },
+                [
+                    {"series_name": "Show I'm done with"},
+                ],
+            ),
+        ),
+        Tool(
+            name="get_followed_shows",
+            description="List all shows you're following for new episodes.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+        Tool(
+            name="check_new_episodes",
+            description=(
+                "Check for new episodes of shows you're following. "
+                "Uses TMDb to find upcoming episode air dates."
+            ),
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "days_ahead": {
+                            "type": "integer",
+                            "description": "How many days ahead to check (default 7)",
+                            "default": 7,
+                        },
+                    },
+                },
+                [
+                    {},
+                    {"days_ahead": 14},
                 ],
             ),
         ),
