@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-asyncio", "ruff"]
+dev = ["pytest", "pytest-asyncio", "pytest-cov", "ruff"]
 discovery = ["zeroconf"]      # Better network discovery
 
 [project.scripts]
@@ -48,3 +48,20 @@ select = ["E", "F", "I", "N", "W", "UP"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = ["*/tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+fail_under = 30
+show_missing = true
+
+[tool.coverage.html]
+directory = "htmlcov"
