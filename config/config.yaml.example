@@ -83,6 +83,23 @@ devices:
       # robot_index: 1             # Or by index (0-based)
       # robot_id: "XXXXXXXXX"      # Or by exact robot ID
 
+  # AppleTV Media Devices
+  # Discover with: python -c "import asyncio; import pyatv; print(asyncio.run(pyatv.scan()))"
+  - id: appletv_living
+    name: Living Room Apple TV
+    type: appletv
+    room: living_room
+    config:
+      ip: "192.168.1.xxx"  # AppleTV IP address
+      # identifier: "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"  # Alternative to IP
+
+  - id: appletv_bedroom
+    name: Bedroom Apple TV
+    type: appletv
+    room: bedroom
+    config:
+      ip: "192.168.1.yyy"
+
   # Presence Sensors
   - id: mmwave_living
     name: Living Room Presence

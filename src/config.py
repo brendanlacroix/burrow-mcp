@@ -74,6 +74,8 @@ class SecretsConfig(BaseModel):
     govee: dict[str, str] = Field(default_factory=dict)
     ring: dict[str, str] = Field(default_factory=dict)
     mqtt: dict[str, Any] = Field(default_factory=dict)
+    # Per-device AppleTV credentials (pairing credentials per device_id)
+    appletv: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 def find_config_dir() -> Path:

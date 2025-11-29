@@ -52,6 +52,20 @@ TOOL_CATEGORIES = {
         "tags": ["vacuum", "cleaning", "roomba", "robot", "dock"],
         "tools": ["start_vacuum", "stop_vacuum", "dock_vacuum"],
     },
+    "media": {
+        "name": "Media Control",
+        "description": "Tools for controlling media devices like AppleTV",
+        "tags": ["media", "tv", "appletv", "play", "pause", "streaming", "netflix", "hulu"],
+        "tools": ["get_now_playing", "media_play", "media_pause", "media_stop",
+                  "media_skip_forward", "media_skip_backward", "launch_app", "list_apps"],
+    },
+    "recommendations": {
+        "name": "TV Recommendations",
+        "description": "Get personalized TV and movie recommendations based on viewing history",
+        "tags": ["recommend", "suggestions", "watch", "tv", "movies", "shows", "what to watch"],
+        "tools": ["get_recommendations", "what_to_watch", "get_viewing_history",
+                  "get_viewing_stats", "rate_content"],
+    },
     "scenes": {
         "name": "Scenes & Automation",
         "description": "Tools for predefined automation scenes",
@@ -774,6 +788,340 @@ def get_audit_tools() -> list[Tool]:
     ]
 
 
+def get_media_tools() -> list[Tool]:
+    """Get media control tool definitions."""
+    return [
+        Tool(
+            name="get_now_playing",
+            description=(
+                "Get what's currently playing on a media device (AppleTV, etc.). "
+                "Shows the current app, title, show name, episode info, and playback state."
+            ),
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Media device ID (e.g., 'living_room_appletv')",
+                        },
+                    },
+                    "required": ["device_id"],
+                },
+                [
+                    {"device_id": "living_room_appletv"},
+                ],
+            ),
+        ),
+        Tool(
+            name="media_play",
+            description="Resume or start playback on a media device.",
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Media device ID",
+                        },
+                    },
+                    "required": ["device_id"],
+                },
+                [
+                    {"device_id": "living_room_appletv"},
+                ],
+            ),
+        ),
+        Tool(
+            name="media_pause",
+            description="Pause playback on a media device.",
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Media device ID",
+                        },
+                    },
+                    "required": ["device_id"],
+                },
+                [
+                    {"device_id": "living_room_appletv"},
+                ],
+            ),
+        ),
+        Tool(
+            name="media_stop",
+            description="Stop playback on a media device and return to home screen.",
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Media device ID",
+                        },
+                    },
+                    "required": ["device_id"],
+                },
+                [
+                    {"device_id": "living_room_appletv"},
+                ],
+            ),
+        ),
+        Tool(
+            name="media_skip_forward",
+            description="Skip to next track/episode on a media device.",
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Media device ID",
+                        },
+                    },
+                    "required": ["device_id"],
+                },
+                [
+                    {"device_id": "living_room_appletv"},
+                ],
+            ),
+        ),
+        Tool(
+            name="media_skip_backward",
+            description="Skip to previous track/episode on a media device.",
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Media device ID",
+                        },
+                    },
+                    "required": ["device_id"],
+                },
+                [
+                    {"device_id": "living_room_appletv"},
+                ],
+            ),
+        ),
+        Tool(
+            name="launch_app",
+            description=(
+                "Launch a streaming app on a media device. "
+                "Use list_apps to see available apps. Supports Netflix, Hulu, Disney+, etc."
+            ),
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Media device ID",
+                        },
+                        "app": {
+                            "type": "string",
+                            "description": "App name or ID (e.g., 'Netflix', 'Hulu', 'Disney+')",
+                        },
+                    },
+                    "required": ["device_id", "app"],
+                },
+                [
+                    {"device_id": "living_room_appletv", "app": "Netflix"},
+                    {"device_id": "living_room_appletv", "app": "Hulu"},
+                ],
+            ),
+        ),
+        Tool(
+            name="list_apps",
+            description="List all installed streaming apps on a media device.",
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Media device ID",
+                        },
+                    },
+                    "required": ["device_id"],
+                },
+                [
+                    {"device_id": "living_room_appletv"},
+                ],
+            ),
+        ),
+    ]
+
+
+def get_recommendation_tools() -> list[Tool]:
+    """Get TV recommendation tool definitions."""
+    return [
+        Tool(
+            name="get_recommendations",
+            description=(
+                "Get personalized TV and movie recommendations based on your viewing history. "
+                "Includes 'continue watching', favorites, and discovery suggestions."
+            ),
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of recommendations (default 10)",
+                            "default": 10,
+                        },
+                        "include_continue": {
+                            "type": "boolean",
+                            "description": "Include 'continue watching' suggestions",
+                            "default": True,
+                        },
+                        "include_favorites": {
+                            "type": "boolean",
+                            "description": "Include suggestions based on favorites",
+                            "default": True,
+                        },
+                        "include_discovery": {
+                            "type": "boolean",
+                            "description": "Include discovery suggestions based on genres/apps",
+                            "default": True,
+                        },
+                    },
+                },
+                [
+                    {},
+                    {"limit": 5},
+                    {"include_continue": True, "include_favorites": True},
+                ],
+            ),
+        ),
+        Tool(
+            name="what_to_watch",
+            description=(
+                "Can't decide what to watch? Get a single focused suggestion based on your "
+                "viewing habits. Perfect for when you and Jeff are staring at the TV."
+            ),
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "mood": {
+                            "type": "string",
+                            "description": (
+                                "Optional mood hint (e.g., 'comedy', 'action', 'something light')"
+                            ),
+                        },
+                    },
+                },
+                [
+                    {},
+                    {"mood": "comedy"},
+                    {"mood": "something light"},
+                ],
+            ),
+        ),
+        Tool(
+            name="get_viewing_history",
+            description="Get your viewing history - what you've been watching recently.",
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "device_id": {
+                            "type": "string",
+                            "description": "Filter by device (optional)",
+                        },
+                        "app": {
+                            "type": "string",
+                            "description": "Filter by app (e.g., 'Netflix', 'Hulu')",
+                        },
+                        "days": {
+                            "type": "integer",
+                            "description": "Number of days to look back (default 30)",
+                            "default": 30,
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum items to return (default 50)",
+                            "default": 50,
+                        },
+                    },
+                },
+                [
+                    {},
+                    {"days": 7},
+                    {"app": "Netflix", "days": 14},
+                ],
+            ),
+        ),
+        Tool(
+            name="get_viewing_stats",
+            description=(
+                "Get viewing statistics - which apps you use most, favorite genres, "
+                "total watch time, and more."
+            ),
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "days": {
+                            "type": "integer",
+                            "description": "Number of days to analyze (default 30)",
+                            "default": 30,
+                        },
+                    },
+                },
+                [
+                    {},
+                    {"days": 7},
+                    {"days": 90},
+                ],
+            ),
+        ),
+        Tool(
+            name="rate_content",
+            description=(
+                "Rate content you've watched. Helps improve recommendations. "
+                "Like or dislike shows, or give a 1-5 star rating."
+            ),
+            inputSchema=_add_examples(
+                {
+                    "type": "object",
+                    "properties": {
+                        "title": {
+                            "type": "string",
+                            "description": "Movie title (for movies)",
+                        },
+                        "series_name": {
+                            "type": "string",
+                            "description": "Series name (for TV shows)",
+                        },
+                        "liked": {
+                            "type": "boolean",
+                            "description": "Simple like (true) or dislike (false)",
+                        },
+                        "rating": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 5,
+                            "description": "Star rating 1-5",
+                        },
+                    },
+                },
+                [
+                    {"series_name": "The Office", "liked": True},
+                    {"title": "Inception", "rating": 5},
+                    {"series_name": "Breaking Bad", "liked": True, "rating": 5},
+                ],
+            ),
+        ),
+    ]
+
+
 def get_all_tools() -> list[Tool]:
     """Get all tool definitions."""
     return (
@@ -783,6 +1131,8 @@ def get_all_tools() -> list[Tool]:
         + get_plug_tools()
         + get_lock_tools()
         + get_vacuum_tools()
+        + get_media_tools()
+        + get_recommendation_tools()
         + get_scene_tools()
         + get_scheduling_tools()
         + get_audit_tools()
